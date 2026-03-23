@@ -58,6 +58,11 @@
       <input type="range" min="0" max="100" step="10" value="30" 
         style="width:100%;" oninput="setZIndexStep(this.value)">
     </div>
+    <div style="margin-top:8px;">
+      <label style="font-size:0.8em;color:#888;">视差范围：<span id="parallaxRangeVal">0.7</span></label>
+      <input type="range" min="0" max="1.0" step="0.1" value="0.7" 
+        style="width:100%;" oninput="setParallaxRange(this.value)">
+    </div>
     <h2>📊 Layers</h2>
     <div id="layerList"></div>
     <h2>📜 Log</h2>
@@ -87,7 +92,8 @@ const state = {
   mouse: { screenX: 0, screenY: 0, worldX: 0, worldY: 0, gridCol: 0, gridRow: 0, overTile: null, layer: 0 },
   layerSettings: {
     foregroundAlpha: 0.6,
-    zIndexStep: 30
+    zIndexStep: 30,
+    parallaxRange: 0.7  // Parallax range coefficient (0.3 to 1.0)
   }
 };
 
@@ -136,7 +142,9 @@ function getLayerForDepth(depth) {
 // Layer 4 = foreground (top), Layer 0 = background (bottom)
 function getParallaxFactor(layerIndex) {
   // Layer 4 (foreground) = 100%, Layer 0 (background) = 30%
-  return 0.3 + (layerIndex / (LAYER_COUNT - 1)) * 0.7;
+  // Formula: 0.3 + (layerIndex / 4) * parallaxRange
+  const parallaxRange = state.layerSettings.parallaxRange;
+  return 0.3 + (layerIndex / (LAYER_COUNT - 1)) * parallaxRange;
 }
 
 function getLayerAlpha(layerIndex) {
@@ -430,12 +438,25 @@ function render() {
     const parallax = getParallaxFactor(layerIdx);
     const zOffset = getZIndexOffset(layerIdx);
     
+    // Debug: Print layer info to console
+    if (state.showDebug && layerIdx === 0) {
+      console.log('=== Layer Z-Axis Debug (Z=0 test) ===');
+    }
+    if (state.showDebug) {
+      console.log(`Layer ${layerIdx}: parallax=${(parallax*100).toFixed(0)}%, zOffset=${zOffset}px, zIndexStep=${state.layerSettings.zIndexStep}`);
+    }
+    
     ctx.save();
     // Apply Z-axis offset as screen-space translation
-    // Positive Z moves layer DOWN (appears lower in screen space)
-    // We invert it so positive Z appears higher/closer
     if (zOffset !== 0) {
       ctx.translate(0, -zOffset);  // Negative = up (foreground)
+      if (state.showDebug) {
+        console.log(`  → Applied ctx.translate(0, ${-zOffset})`);
+      }
+    } else {
+      if (state.showDebug) {
+        console.log(`  → No translation (zOffset=0)`);
+      }
     }
     
     // Draw tiles for this layer
@@ -494,6 +515,7 @@ function render() {
     const mouseLayer = state.mouse.layer || getLayerForDepth(state.mouse.gridCol + state.mouse.gridRow);
     ctx.fillText(`Layer: ${mouseLayer} (α:${(getLayerAlpha(mouseLayer)*100).toFixed(0)}% Z:${getZIndexOffset(mouseLayer)}px)`, 10, y); y += lineH;
     ctx.fillText(`Player Layer: ${getPlayerLayer()} (parallax: ${(getPlayerLayerParallax()*100).toFixed(0)}%)`, 10, y); y += lineH;
+    ctx.fillText(`Parallax Range: ${state.layerSettings.parallaxRange}`, 10, y); y += lineH;
     
     // Highlight mouse tile on player's layer (with Z-axis offset)
     const { gridCol, gridRow } = state.mouse;
@@ -702,6 +724,14 @@ function setZIndexStep(value) {
   state.layerSettings.zIndexStep = parseInt(value);
   document.getElementById('zStepVal').textContent = value;
   log(`Z-axis step: ${value}`, 'info');
+}
+
+function setParallaxRange(value) {
+  state.layerSettings.parallaxRange = parseFloat(value);
+  document.getElementById('parallaxRangeVal').textContent = value;
+  const layer0Parallax = (0.3 * 100).toFixed(0);
+  const layer4Parallax = (0.3 + parseFloat(value)) * 100;
+  log(`Parallax range: ${value} (Layer 0: ${layer0Parallax}%, Layer 4: ${layer4Parallax.toFixed(0)}%)`, 'info');
 }
 
 function regenerateClouds() {
