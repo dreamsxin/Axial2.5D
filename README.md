@@ -33,7 +33,7 @@ npm install canvas  # 可选，需要原生依赖
 
 ## 🚀 快速开始 Quick Start
 
-### Web 演示（推荐）
+### 方式 1：Web 演示（推荐新手）
 
 ```bash
 # 启动 Web 服务器
@@ -43,15 +43,51 @@ npm run server
 http://localhost:3000
 ```
 
-### 命令行测试
+**特点：**
+- 独立 HTML 文件，无需编译
+- 包含所有功能的交互式演示
+- 适合快速体验和测试
+
+### 方式 2：使用框架开发
 
 ```bash
-# 运行测试
-npm test
+# 1. 编译框架
+npm run build
 
-# 运行基础演示
-npm run demo
+# 2. 在项目中导入
+import { Game, LayerManager, Projection } from 'axial-2-5d';
+
+# 3. 创建游戏实例
+const game = new Game({
+  width: 800,
+  height: 600,
+  projection: { type: 'isometric', viewAngle: 45 }
+});
+
+# 4. 创建图层系统
+const layers = layerManager.createStandardLayers(0, 2000, 5, {
+  zIndexStep: 30,
+  parallaxRange: 0.7
+});
+
+# 5. 启动游戏
+game.start();
 ```
+
+### 方式 3：查看框架示例
+
+```bash
+# 编译框架
+npm run build
+
+# 打开正式示例（使用框架 API）
+# 浏览器打开：examples/web-example.html
+```
+
+**特点：**
+- 展示如何正确使用框架 API
+- 包含完整的功能实现
+- 作为开发参考模板
 
 ## 🎯 Web 演示控制
 
