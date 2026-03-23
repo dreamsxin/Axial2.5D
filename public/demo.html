@@ -363,7 +363,8 @@ function getEntityDepth(entity) {
 
 function updateCamera() {
   const worldPos = gridToWorld(state.player.col, state.player.row);
-  const screen = worldToScreen(worldPos.x, worldPos.y, 0);
+  // Use parallax = 1 (no parallax) for camera centering calculation
+  const screen = worldToScreen(worldPos.x, worldPos.y, 0, 1.0);
   state.camera.targetOffsetX = canvas.width / 2 - screen.sx;
   state.camera.targetOffsetY = canvas.height / 2 - screen.sy;
   
@@ -574,7 +575,8 @@ document.addEventListener('keydown', e => {
 
 function centerCamera() {
   const worldPos = gridToWorld(state.player.col, state.player.row);
-  const screen = worldToScreen(worldPos.x, worldPos.y, 0);
+  // Use parallax = 1 (no parallax) for camera centering
+  const screen = worldToScreen(worldPos.x, worldPos.y, 0, 1.0);
   state.camera.offsetX = canvas.width / 2 - screen.sx;
   state.camera.offsetY = canvas.height / 2 - screen.sy;
   state.camera.targetOffsetX = state.camera.offsetX;
