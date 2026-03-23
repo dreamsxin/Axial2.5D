@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Axial2.5D - Framework Example</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #1a1a2e; color: #fff; overflow: hidden; }
+    #container { display: flex; height: 100vh; }
+    #canvas-container { flex: 1; display: flex; justify-content: center; align-items: center; }
+    canvas { border: 2px solid #4a4a6a; border-radius: 8px; }
+    #sidebar { width: 280px; background: rgba(0,0,0,0.3); padding: 15px; overflow-y: auto; }
+    h1 { font-size: 1.4em; margin-bottom: 10px; color: #4a90d9; }
+    h2 { font-size: 1em; margin: 15px 0 8px; color: #6a8caf; border-bottom: 1px solid #4a4a6a; padding-bottom: 5px; }
+    .stat { margin: 5px 0; font-size: 0.85em; color: #aaa; }
+    .stat span { color: #fff; }
+    button { width: 100%; padding: 8px; margin: 4px 0; background: #4a4a6a; border: none; border-radius: 4px; color: #fff; cursor: pointer; }
+    button:hover { background: #5a5a7a; }
+    button.active { background: #4a90d9; }
+    .key { display: inline-block; background: #333; padding: 2px 5px; border-radius: 3px; font-size: 0.75em; margin: 1px; }
+    #log { background: rgba(0,0,0,0.3); border: 1px solid #4a4a6a; border-radius: 4px; padding: 8px; height: 100px; overflow-y: auto; font-family: monospace; font-size: 0.75em; }
+    .log-info { color: #4a90d9; }
+    .log-success { color: #4ad97a; }
+  </style>
+</head>
+<body>
+<div id="container">
+  <div id="canvas-container">
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+  </div>
+  <div id="sidebar">
+    <h1>🎮 Axial2.5D Framework</h1>
+    <h2>📊 Status</h2>
+    <div class="stat">FPS: <span id="fps">0</span></div>
+    <div class="stat">Layers: <span id="layerCount">0</span></div>
+    <div class="stat">Player: <span id="playerPos">0, 0</span></div>
+    <h2>🎯 Controls</h2>
+    <div class="stat"><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span> Move</div>
+    <div class="stat"><span class="key">Click</span> Move to tile</div>
+    <div class="stat"><span class="key">Drag</span> Pan camera</div>
+    <div class="stat"><span class="key">Wheel</span> Zoom</div>
+    <h2>⚙️ Settings</h2>
+    <button id="btnGrid" onclick="toggleGrid()">📐 Grid</button>
+    <button id="btnDebug" onclick="toggleDebug()">🐛 Debug</button>
+    <button onclick="resetCamera()">📷 Reset Camera</button>
+    <div style="margin-top:10px;">
+      <label style="font-size:0.8em;color:#888;">Z-Axis Step: <span id="zStepVal">30</span></label>
+      <input type="range" min="0" max="100" step="10" value="30" style="width:100%;" oninput="setZIndexStep(this.value)">
+    </div>
+    <div style="margin-top:8px;">
+      <label style="font-size:0.8em;color:#888;">Parallax Range: <span id="parallaxRangeVal">0.7</span></label>
+      <input type="range" min="0" max="1" step="0.1" value="0.7" style="width:100%;" oninput="setParallaxRange(this.value)">
+    </div>
+    <h2>📜 Log</h2>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script type="module">
+// Import framework modules
+import { Projection, IsoCamera, GridSystem, LayerManager, EventBus } from '../dist/src/index.js';
+
+// Game state
+const state = {
+  showGrid: true,
+  showDebug: false,
+  player: { col: 6, row: 6 },
+  camera: { offsetX: 0, offsetY: 0, zoom: 1 },
+  settings: {
+    zIndexStep: 30,
+    parallaxRange: 0.7
+  }
+};
+
+// Constants
+const CANVAS_WIDTH = 800;
+const CANVAS_HEIGHT = 600;
+const MAP_SIZE = 12;
+const CELL_SIZE = 50;
+const LAYER_COUNT = 5;
+
+// Initialize framework components
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const eventBus = new EventBus();
+const projection = new Projection({ type: 'isometric', viewAngle: 45 });
+const camera = new IsoCamera(CANVAS_WIDTH, CANVAS_HEIGHT);
+
+// Create grid system
+const gridSystem = new GridSystem({
+  width: MAP_SIZE,
+  height: MAP_SIZE,
+  tileW: CELL_SIZE,
+  tileH: CELL_SIZE
+}, projection);
+
+// Create layer manager
+const layerManager = new LayerManager(camera, projection);
+const layers = layerManager.createStandardLayers(0, 2000, LAYER_COUNT, {
+  foregroundAlpha: 0.6,
+  backgroundAlpha: 1.0,
+  zIndexStep: state.settings.zIndexStep,
+  parallaxRange: state.settings.parallaxRange
+});
+
+// Create sample entities (buildings)
+const buildings = [
+  { id: 'house1', col: 3, row: 3, width: 80, length: 80, height: 60 },
+  { id: 'house2', col: 9, row: 3, width: 80, length: 80, height: 60 },
+  { id: 'townhall', col: 6, row: 6, width: 120, length: 120, height: 100 }
+];
+
+// Game loop
+let lastTime = 0;
+let frameCount = 0;
+let fps = 0;
+
+function gameLoop(timestamp) {
+  const delta = timestamp - lastTime;
+  lastTime = timestamp;
+  frameCount++;
+  
+  if (delta >= 1000) {
+    fps = frameCount;
+    frameCount = 0;
+  }
+  
+  render();
+  updateUI();
+  
+  requestAnimationFrame(gameLoop);
+}
+
+function render() {
+  // Clear canvas
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  
+  // Render layers
+  layerManager.render(ctx);
+  
+  // Draw debug info
+  if (state.showDebug) {
+    drawDebug();
+  }
+}
+
+function drawDebug() {
+  ctx.fillStyle = '#0f0';
+  ctx.font = '12px monospace';
+  let y = 20;
+  const lineH = 16;
+  
+  ctx.fillText(`FPS: ${fps}`, 10, y); y += lineH;
+  ctx.fillText(`Layers: ${layers.length}`, 10, y); y += lineH;
+  ctx.fillText(`Player: (${state.player.col}, ${state.player.row})`, 10, y); y += lineH;
+  ctx.fillText(`Camera: (${state.camera.offsetX.toFixed(0)}, ${state.camera.offsetY.toFixed(0)})`, 10, y); y += lineH;
+  ctx.fillText(`Parallax Range: ${state.settings.parallaxRange}`, 10, y); y += lineH;
+  ctx.fillText(`Z-Axis Step: ${state.settings.zIndexStep}px`, 10, y);
+}
+
+function updateUI() {
+  document.getElementById('fps').textContent = fps;
+  document.getElementById('layerCount').textContent = layers.length;
+  document.getElementById('playerPos').textContent = `${state.player.col}, ${state.player.row}`;
+}
+
+// Input handling
+let isDragging = false;
+let lastX, lastY;
+
+canvas.addEventListener('mousedown', e => {
+  isDragging = true;
+  lastX = e.clientX;
+  lastY = e.clientY;
+});
+
+canvas.addEventListener('mouseup', () => isDragging = false);
+
+canvas.addEventListener('mousemove', e => {
+  if (isDragging) {
+    state.camera.offsetX += e.clientX - lastX;
+    state.camera.offsetY += e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+  }
+});
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  state.camera.zoom *= e.deltaY > 0 ? 0.9 : 1.1;
+  state.camera.zoom = Math.max(0.5, Math.min(3, state.camera.zoom));
+});
+
+// Keyboard controls
+document.addEventListener('keydown', e => {
+  let { col, row } = state.player;
+  if (e.key === 'w' || e.key === 'ArrowUp') row--;
+  if (e.key === 's' || e.key === 'ArrowDown') row++;
+  if (e.key === 'a' || e.key === 'ArrowLeft') col--;
+  if (e.key === 'd' || e.key === 'ArrowRight') col++;
+  
+  if (col >= 0 && col < MAP_SIZE && row >= 0 && row < MAP_SIZE) {
+    state.player.col = col;
+    state.player.row = row;
+    log(`Moved to (${col}, ${row})`, 'info');
+  }
+});
+
+// UI functions
+window.toggleGrid = () => {
+  state.showGrid = !state.showGrid;
+  document.getElementById('btnGrid').classList.toggle('active', state.showGrid);
+};
+
+window.toggleDebug = () => {
+  state.showDebug = !state.showDebug;
+  document.getElementById('btnDebug').classList.toggle('active', state.showDebug);
+};
+
+window.resetCamera = () => {
+  state.camera.offsetX = 0;
+  state.camera.offsetY = 0;
+  state.camera.zoom = 1;
+  log('Camera reset', 'info');
+};
+
+window.setZIndexStep = (value) => {
+  state.settings.zIndexStep = parseInt(value);
+  document.getElementById('zStepVal').textContent = value;
+  // Recreate layers with new Z-axis step
+  layerManager.createStandardLayers(0, 2000, LAYER_COUNT, {
+    zIndexStep: state.settings.zIndexStep,
+    parallaxRange: state.settings.parallaxRange
+  });
+  log(`Z-axis step: ${value}`, 'info');
+};
+
+window.setParallaxRange = (value) => {
+  state.settings.parallaxRange = parseFloat(value);
+  document.getElementById('parallaxRangeVal').textContent = value;
+  // Recreate layers with new parallax range
+  layerManager.createStandardLayers(0, 2000, LAYER_COUNT, {
+    zIndexStep: state.settings.zIndexStep,
+    parallaxRange: state.settings.parallaxRange
+  });
+  log(`Parallax range: ${value}`, 'info');
+};
+
+function log(msg, type = '') {
+  const logEl = document.getElementById('log');
+  const entry = document.createElement('div');
+  entry.className = `log-${type}`;
+  entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  logEl.appendChild(entry);
+  logEl.scrollTop = logEl.scrollHeight;
+  while (logEl.children.length > 20) logEl.removeChild(logEl.firstChild);
+}
+
+// Start game
+log('Axial2.5D Framework Example started!', 'success');
+log(`Created ${layers.length} layers`, 'info');
+log('Using LayerManager API', 'info');
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
