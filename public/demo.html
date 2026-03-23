@@ -84,7 +84,7 @@ const state = {
   frameCount: 0,
   fps: 0,
   isDragging: false,
-  mouse: { screenX: 0, screenY: 0, worldX: 0, worldY: 0, gridCol: 0, gridRow: 0, overTile: null },
+  mouse: { screenX: 0, screenY: 0, worldX: 0, worldY: 0, gridCol: 0, gridRow: 0, overTile: null, layer: 0 },
   layerSettings: {
     foregroundAlpha: 0.6,
     zIndexStep: 30
@@ -109,10 +109,11 @@ function worldToScreen(worldX, worldY, worldZ, parallaxFactor = 1.0) {
   };
 }
 
-function screenToWorld(screenX, screenY) {
+function screenToWorld(screenX, screenY, parallaxFactor = 1.0) {
   const scale = state.camera.zoom;
-  const adjX = (screenX - canvas.width / 2 - state.camera.offsetX) / scale;
-  const adjY = (screenY - canvas.height / 2 - state.camera.offsetY) / scale;
+  // Adjust for parallax factor
+  const adjX = (screenX - canvas.width / 2 - state.camera.offsetX * parallaxFactor) / scale;
+  const adjY = (screenY - canvas.height / 2 - state.camera.offsetY * parallaxFactor) / scale;
   const worldX = (adjX / COS_THETA + adjY / SIN_THETA) / 2;
   const worldY = (adjY / SIN_THETA - adjX / COS_THETA) / 2;
   return { x: worldX, y: worldY };
@@ -147,6 +148,14 @@ function getLayerAlpha(layerIndex) {
 function getZIndexOffset(layerIndex) {
   // Layer 4 (foreground) = 0, Layer 0 (background) = high Z offset
   return (LAYER_COUNT - 1 - layerIndex) * state.layerSettings.zIndexStep;
+}
+
+function getPlayerLayer() {
+  return getLayerForDepth(state.player.col + state.player.row);
+}
+
+function getPlayerLayerParallax() {
+  return getParallaxFactor(getPlayerLayer());
 }
 
 const mapSize = 12;
@@ -429,14 +438,15 @@ function render() {
     ctx.fillText(`Screen: (${state.mouse.screenX.toFixed(0)}, ${state.mouse.screenY.toFixed(0)})`, 10, y); y += lineH;
     ctx.fillText(`World: (${state.mouse.worldX.toFixed(1)}, ${state.mouse.worldY.toFixed(1)})`, 10, y); y += lineH;
     ctx.fillText(`Grid: (${state.mouse.gridCol}, ${state.mouse.gridRow})`, 10, y); y += lineH;
-    const mouseLayer = getLayerForDepth(state.mouse.gridCol + state.mouse.gridRow);
+    const mouseLayer = state.mouse.layer || getLayerForDepth(state.mouse.gridCol + state.mouse.gridRow);
     ctx.fillText(`Layer: ${mouseLayer} (α:${(getLayerAlpha(mouseLayer)*100).toFixed(0)}% Z:+${getZIndexOffset(mouseLayer)})`, 10, y); y += lineH;
+    ctx.fillText(`Player Layer: ${getPlayerLayer()} (parallax: ${(getPlayerLayerParallax()*100).toFixed(0)}%)`, 10, y); y += lineH;
     
-    // Highlight mouse tile
+    // Highlight mouse tile using player's layer parallax
     const { gridCol, gridRow } = state.mouse;
     if (gridCol >= 0 && gridCol < mapSize && gridRow >= 0 && gridRow < mapSize) {
       const worldPos = gridToWorld(gridCol, gridRow);
-      const layerIdx = getLayerForDepth(gridCol + gridRow);
+      const layerIdx = state.mouse.layer || getLayerForDepth(gridCol + gridRow);
       const parallax = getParallaxFactor(layerIdx);
       const corners = [
         worldToScreen(worldPos.x, worldPos.y, 0, parallax),
@@ -526,13 +536,18 @@ canvas.addEventListener('mousemove', e => {
   const rect = canvas.getBoundingClientRect();
   state.mouse.screenX = e.clientX - rect.left;
   state.mouse.screenY = e.clientY - rect.top;
-  const world = screenToWorld(state.mouse.screenX, state.mouse.screenY);
+  
+  // Use player's layer parallax for mouse coordinate calculation
+  const playerParallax = getPlayerLayerParallax();
+  const world = screenToWorld(state.mouse.screenX, state.mouse.screenY, playerParallax);
   state.mouse.worldX = world.x;
   state.mouse.worldY = world.y;
+  
   const grid = worldToGrid(world.x, world.y);
   state.mouse.gridCol = grid.col;
   state.mouse.gridRow = grid.row;
   state.mouse.overTile = (grid.col >= 0 && grid.col < mapSize && grid.row >= 0 && grid.row < mapSize) ? tiles[grid.col][grid.row] : null;
+  state.mouse.layer = getLayerForDepth(grid.col + grid.row);
   
   if (isDragging) {
     state.camera.offsetX += e.clientX - lastX;
@@ -547,7 +562,9 @@ canvas.addEventListener('wheel', e => {
 });
 canvas.addEventListener('click', e => {
   const rect = canvas.getBoundingClientRect();
-  const world = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+  // Use player's layer parallax for click coordinate calculation
+  const playerParallax = getPlayerLayerParallax();
+  const world = screenToWorld(e.clientX - rect.left, e.clientY - rect.top, playerParallax);
   const grid = worldToGrid(world.x, world.y);
   if (grid.col >= 0 && grid.col < mapSize && grid.row >= 0 && grid.row < mapSize && tiles[grid.col][grid.row].walkable) {
     state.player.col = grid.col;
