@@ -9,6 +9,8 @@ export { Projection } from './core/Projection';
 export { IsoCamera } from './core/IsoCamera';
 export { CanvasRenderer } from './core/CanvasRenderer';
 export { Game } from './core/Game';
+export { Layer, LayerConfig } from './core/Layer';
+export { LayerManager, LayerManagerConfig } from './core/LayerManager';
 export * from './core/types';
 
 // World
