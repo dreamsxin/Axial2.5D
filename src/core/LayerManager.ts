@@ -34,34 +34,50 @@ export class LayerManager {
 
   /**
    * Create standard layers based on depth ranges
-   * Automatically calculates parallax factors
+   * Automatically calculates parallax factors and alpha
    */
   public createStandardLayers(
     depthMin: number,
     depthMax: number,
-    layerCount: number = 5
+    layerCount: number = 5,
+    options?: {
+      foregroundAlpha?: number;  // Alpha for foreground layers (default 0.7)
+      backgroundAlpha?: number;  // Alpha for background layers (default 1.0)
+      zIndexStep?: number;       // Z-axis step between layers (default 50)
+    }
   ): Layer[] {
     this.clear();
     
     const range = depthMax - depthMin;
     const step = range / layerCount;
     const layers: Layer[] = [];
+    
+    const fgAlpha = options?.foregroundAlpha ?? 0.7;
+    const bgAlpha = options?.backgroundAlpha ?? 1.0;
+    const zStep = options?.zIndexStep ?? 50;
 
     for (let i = 0; i < layerCount; i++) {
       const layerMin = depthMin + i * step;
       const layerMax = depthMin + (i + 1) * step;
       
-      // Parallax factor: foreground (i=0) = 1.0, background (i=layerCount-1) = 0.0
-      // Using smooth interpolation
+      // Parallax factor: foreground (i=0) = 1.0, background (i=layerCount-1) = 0.3
       const t = i / (layerCount - 1);
-      const parallaxFactor = 1.0 - t * 0.8; // Background still moves 20%
+      const parallaxFactor = 1.0 - t * 0.7;
+      
+      // Alpha: foreground = fgAlpha, background = bgAlpha
+      const alpha = fgAlpha + (bgAlpha - fgAlpha) * t;
+      
+      // Z-index offset: foreground = 0, background = higher values
+      const zIndexOffset = i * zStep;
       
       const layer = this.createLayer({
         id: `layer_${i}`,
         depthMin: layerMin,
         depthMax: layerMax,
         parallaxFactor,
-        zIndex: i
+        zIndex: i,
+        zIndexOffset,
+        alpha
       });
       
       layers.push(layer);

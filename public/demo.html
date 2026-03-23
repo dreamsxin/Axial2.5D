@@ -47,6 +47,17 @@
     <button id="btnDebug" onclick="toggleDebug()">🐛 Debug</button>
     <button id="btnLayers" onclick="toggleLayers()">🗂️ Show Layers</button>
     <button onclick="resetCam()">📷 Reset Camera</button>
+    <button onclick="regenerateClouds()">☁️ Regenerate Clouds</button>
+    <div style="margin-top:10px;">
+      <label style="font-size:0.8em;color:#888;">前景透明度：<span id="fgAlphaVal">0.6</span></label>
+      <input type="range" min="0.2" max="1.0" step="0.1" value="0.6" 
+        style="width:100%;" oninput="setForegroundAlpha(this.value)">
+    </div>
+    <div style="margin-top:8px;">
+      <label style="font-size:0.8em;color:#888;">Z 轴间距：<span id="zStepVal">30</span></label>
+      <input type="range" min="0" max="100" step="10" value="30" 
+        style="width:100%;" oninput="setZIndexStep(this.value)">
+    </div>
     <h2>📊 Layers</h2>
     <div id="layerList"></div>
     <h2>📜 Log</h2>
@@ -73,7 +84,11 @@ const state = {
   frameCount: 0,
   fps: 0,
   isDragging: false,
-  mouse: { screenX: 0, screenY: 0, worldX: 0, worldY: 0, gridCol: 0, gridRow: 0, overTile: null }
+  mouse: { screenX: 0, screenY: 0, worldX: 0, worldY: 0, gridCol: 0, gridRow: 0, overTile: null },
+  layerSettings: {
+    foregroundAlpha: 0.6,
+    zIndexStep: 30
+  }
 };
 
 const CELL_SIZE = 50;
@@ -117,12 +132,37 @@ function getLayerForDepth(depth) {
   return Math.max(0, Math.min(LAYER_COUNT - 1, layerIndex));
 }
 
+// Layer 4 = foreground (top), Layer 0 = background (bottom)
 function getParallaxFactor(layerIndex) {
-  return 1.0 - (layerIndex / (LAYER_COUNT - 1)) * 0.7;
+  // Layer 4 (foreground) = 100%, Layer 0 (background) = 30%
+  return 0.3 + (layerIndex / (LAYER_COUNT - 1)) * 0.7;
+}
+
+function getLayerAlpha(layerIndex) {
+  // Layer 4 (foreground) = low alpha, Layer 0 (background) = 100% alpha
+  const t = layerIndex / (LAYER_COUNT - 1);
+  return 1.0 - (1.0 - state.layerSettings.foregroundAlpha) * t;
+}
+
+function getZIndexOffset(layerIndex) {
+  // Layer 4 (foreground) = 0, Layer 0 (background) = high Z offset
+  return (LAYER_COUNT - 1 - layerIndex) * state.layerSettings.zIndexStep;
 }
 
 const mapSize = 12;
 const tiles = [];
+const cloudTiles = [];  // Store cloud positions for Layer 4 (foreground)
+
+// Create cloud tiles in Layer 4 (foreground)
+const cloudCount = 8;
+for (let i = 0; i < cloudCount; i++) {
+  const c = Math.floor(Math.random() * (mapSize - 2)) + 1;
+  const r = Math.floor(Math.random() * (mapSize - 2)) + 1;
+  const cloudSize = 40 + Math.random() * 40;  // Random size 40-80
+  const cloudY = -50 - Math.random() * 100;   // Float above ground (-50 to -150)
+  cloudTiles.push({ col: c, row: r, size: cloudSize, offsetY: cloudY });
+}
+
 for (let c = 0; c < mapSize; c++) {
   tiles[c] = [];
   for (let r = 0; r < mapSize; r++) {
@@ -183,11 +223,48 @@ function drawTile(col, row, type, layerIndex) {
   ctx.stroke();
 }
 
+function drawCloud(cloud, layerIndex) {
+  const worldPos = gridToWorld(cloud.col, cloud.row);
+  const parallax = getParallaxFactor(layerIndex);
+  const zOffset = getZIndexOffset(layerIndex);
+  const alpha = getLayerAlpha(layerIndex);
+  
+  // Cloud center in screen space (floating above ground)
+  const center = worldToScreen(worldPos.x, worldPos.y, cloud.offsetY, parallax);
+  const size = cloud.size;
+  
+  ctx.save();
+  ctx.globalAlpha = alpha * 0.9;  // Slightly transparent clouds
+  
+  // Draw fluffy cloud (multiple overlapping circles)
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  
+  // Main cloud body (3 overlapping circles)
+  ctx.arc(center.sx, center.sy, size * 0.5, 0, Math.PI * 2);
+  ctx.arc(center.sx - size * 0.4, center.sy + size * 0.1, size * 0.4, 0, Math.PI * 2);
+  ctx.arc(center.sx + size * 0.4, center.sy + size * 0.1, size * 0.4, 0, Math.PI * 2);
+  ctx.arc(center.sx - size * 0.2, center.sy - size * 0.3, size * 0.35, 0, Math.PI * 2);
+  ctx.arc(center.sx + size * 0.2, center.sy - size * 0.3, size * 0.35, 0, Math.PI * 2);
+  
+  ctx.fill();
+  
+  // Subtle shadow
+  ctx.fillStyle = 'rgba(200, 200, 200, 0.3)';
+  ctx.beginPath();
+  ctx.arc(center.sx, center.sy + size * 0.3, size * 0.4, 0, Math.PI * 2);
+  ctx.fill();
+  
+  ctx.restore();
+}
+
 function drawBox(entity, layerIndex) {
   const baseX = entity.col * CELL_SIZE;
   const baseY = entity.row * CELL_SIZE;
   const w = entity.width, l = entity.length, h = entity.height;
   const parallax = getParallaxFactor(layerIndex);
+  const zOffset = getZIndexOffset(layerIndex);
+  const alpha = getLayerAlpha(layerIndex);
   
   const corners = {
     lbb: worldToScreen(baseX, baseY, 0, parallax),
@@ -202,6 +279,10 @@ function drawBox(entity, layerIndex) {
   
   const entityIndex = buildings.indexOf(entity);
   const bcolors = entityIndex >= 0 ? buildingColors[entityIndex] : ['#ccc', '#aaa', '#888'];
+  
+  // Apply layer alpha
+  ctx.save();
+  ctx.globalAlpha = alpha;
   
   if (!state.showWireframe) {
     const faces = [
@@ -225,6 +306,8 @@ function drawBox(entity, layerIndex) {
       ctx.stroke();
     }
   }
+  
+  ctx.restore();
   
   ctx.strokeStyle = state.showWireframe ? '#fff' : '#444';
   ctx.lineWidth = 2;
@@ -296,8 +379,8 @@ function render() {
   
   updateCamera();
   
-  // Render by layers (back to front)
-  for (let layerIdx = LAYER_COUNT - 1; layerIdx >= 0; layerIdx--) {
+  // Render by layers (back to front): Layer 0 → Layer 4
+  for (let layerIdx = 0; layerIdx < LAYER_COUNT; layerIdx++) {
     const parallax = getParallaxFactor(layerIdx);
     
     // Draw tiles for this layer
@@ -319,6 +402,13 @@ function render() {
         drawBox(entity, layerIdx);
       }
     }
+    
+    // Draw clouds in Layer 4 (foreground sky)
+    if (layerIdx === LAYER_COUNT - 1) {
+      for (const cloud of cloudTiles) {
+        drawCloud(cloud, layerIdx);
+      }
+    }
   }
   
   if (state.showDebug) {
@@ -338,7 +428,8 @@ function render() {
     ctx.fillText(`Screen: (${state.mouse.screenX.toFixed(0)}, ${state.mouse.screenY.toFixed(0)})`, 10, y); y += lineH;
     ctx.fillText(`World: (${state.mouse.worldX.toFixed(1)}, ${state.mouse.worldY.toFixed(1)})`, 10, y); y += lineH;
     ctx.fillText(`Grid: (${state.mouse.gridCol}, ${state.mouse.gridRow})`, 10, y); y += lineH;
-    ctx.fillText(`Layer: ${getLayerForDepth(state.mouse.gridCol + state.mouse.gridRow)}`, 10, y);
+    const mouseLayer = getLayerForDepth(state.mouse.gridCol + state.mouse.gridRow);
+    ctx.fillText(`Layer: ${mouseLayer} (α:${(getLayerAlpha(mouseLayer)*100).toFixed(0)}% Z:+${getZIndexOffset(mouseLayer)})`, 10, y); y += lineH;
     
     // Highlight mouse tile
     const { gridCol, gridRow } = state.mouse;
@@ -387,19 +478,28 @@ function updateLayerList() {
     layerStats[layer].entities++;
   }
   
+  // Add cloud count to Layer 4 stats
+  layerStats[LAYER_COUNT - 1].clouds = cloudTiles.length;
+  
   layerList.innerHTML = '';
-  for (let i = 0; i < LAYER_COUNT; i++) {
+  // Display from top (foreground) to bottom (background): Layer 4 → Layer 0
+  for (let i = LAYER_COUNT - 1; i >= 0; i--) {
     const parallax = getParallaxFactor(i);
+    const alpha = getLayerAlpha(i);
+    const zOffset = getZIndexOffset(i);
     const div = document.createElement('div');
     div.className = 'layer-item';
+    div.style.borderLeft = i === LAYER_COUNT - 1 ? '3px solid #4a90d9' : '3px solid transparent';
     div.innerHTML = `
       <div style="display:flex;align-items:center;">
-        <div class="layer-color" style="background:${LAYER_COLORS[i]}"></div>
-        <span>Layer ${i}</span>
+        <div class="layer-color" style="background:${LAYER_COLORS[i]};opacity:${alpha}"></div>
+        <span>Layer ${i} ${i === LAYER_COUNT - 1 ? '(前景)' : i === 0 ? '(背景)' : ''}</span>
       </div>
       <div style="text-align:right;">
-        <div>${layerStats[i].tiles} tiles</div>
-        <div style="font-size:0.8em;color:#888;">${layerStats[i].entities} entities | ${(parallax * 100).toFixed(0)}% parallax</div>
+        <div>${layerStats[i].tiles} tiles | ${layerStats[i].entities} entities${i === LAYER_COUNT - 1 ? ` | ☁️ ${layerStats[i].clouds || 0} clouds` : ''}</div>
+        <div style="font-size:0.75em;color:#888;">
+          ${(parallax * 100).toFixed(0)}% parallax | ${(alpha * 100).toFixed(0)}% alpha | Z+${zOffset}
+        </div>
       </div>
     `;
     layerList.appendChild(div);
@@ -487,6 +587,31 @@ function toggleDebug() { state.showDebug = !state.showDebug; document.getElement
 function toggleLayers() { state.showLayerColors = !state.showLayerColors; document.getElementById('btnLayers').classList.toggle('active', state.showLayerColors); }
 function resetCam() { centerCamera(); state.camera.zoom = 1; log('Camera reset', 'info'); }
 
+function setForegroundAlpha(value) {
+  state.layerSettings.foregroundAlpha = parseFloat(value);
+  document.getElementById('fgAlphaVal').textContent = value;
+  log(`Foreground alpha: ${value}`, 'info');
+}
+
+function setZIndexStep(value) {
+  state.layerSettings.zIndexStep = parseInt(value);
+  document.getElementById('zStepVal').textContent = value;
+  log(`Z-axis step: ${value}`, 'info');
+}
+
+function regenerateClouds() {
+  cloudTiles.length = 0;
+  const cloudCount = 6 + Math.floor(Math.random() * 5);  // 6-10 clouds
+  for (let i = 0; i < cloudCount; i++) {
+    const c = Math.floor(Math.random() * (mapSize - 2)) + 1;
+    const r = Math.floor(Math.random() * (mapSize - 2)) + 1;
+    const cloudSize = 40 + Math.random() * 40;
+    const cloudY = -50 - Math.random() * 100;
+    cloudTiles.push({ col: c, row: r, size: cloudSize, offsetY: cloudY });
+  }
+  log(`Generated ${cloudTiles.length} clouds`, 'success');
+}
+
 function log(msg, type = '') {
   const logEl = document.getElementById('log');
   const entry = document.createElement('div');
@@ -512,6 +637,7 @@ function loop(time) {
 centerCamera();
 log('Axial2.5D Multi-Layer Demo started!', 'success');
 log(`${LAYER_COUNT} layers with parallax scrolling`, 'info');
+log(`☁️ ${cloudTiles.length} clouds in Layer 4 (foreground sky)`, 'info');
 requestAnimationFrame(loop);
 </script>
 </body>

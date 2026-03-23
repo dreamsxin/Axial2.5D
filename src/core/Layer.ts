@@ -14,6 +14,8 @@ export interface LayerConfig {
   parallaxFactor?: number; // 0-1, 1 = full parallax (foreground), 0 = no parallax (background)
   visible?: boolean;
   zIndex?: number;       // Render order within layer
+  zIndexOffset?: number; // Z-axis offset for this layer (affects rendering height)
+  alpha?: number;        // Layer transparency (0-1, default 1 = opaque)
 }
 
 export class Layer implements RenderItem {
@@ -23,6 +25,8 @@ export class Layer implements RenderItem {
   public parallaxFactor: number;
   public visible: boolean;
   public zIndex: number;
+  public zIndexOffset: number;  // Z-axis offset for this layer
+  public alpha: number;         // Transparency (0-1)
   public depth: number = 0;
   
   private items: RenderItem[] = [];
@@ -36,6 +40,8 @@ export class Layer implements RenderItem {
     this.parallaxFactor = config.parallaxFactor ?? 1.0;
     this.visible = config.visible ?? true;
     this.zIndex = config.zIndex ?? 0;
+    this.zIndexOffset = config.zIndexOffset ?? 0;
+    this.alpha = config.alpha ?? 1.0;
     this.camera = camera;
     this.projection = projection;
   }
