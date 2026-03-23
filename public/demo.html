@@ -146,8 +146,10 @@ function getLayerAlpha(layerIndex) {
 }
 
 function getZIndexOffset(layerIndex) {
-  // Layer 4 (foreground) = 0, Layer 0 (background) = high Z offset
-  return (LAYER_COUNT - 1 - layerIndex) * state.layerSettings.zIndexStep;
+  // Layer 0 = base (Z=0, world reference plane)
+  // Other layers offset relative to Layer 0
+  // Positive Z = above Layer 0 (foreground/closer to camera)
+  return layerIndex * state.layerSettings.zIndexStep;
 }
 
 function getPlayerLayer() {
@@ -372,10 +374,18 @@ function getEntityDepth(entity) {
 
 function updateCamera() {
   const worldPos = gridToWorld(state.player.col, state.player.row);
-  // Use parallax = 1 (no parallax) for camera centering calculation
-  const screen = worldToScreen(worldPos.x, worldPos.y, 0, 1.0);
-  state.camera.targetOffsetX = canvas.width / 2 - screen.sx;
-  state.camera.targetOffsetY = canvas.height / 2 - screen.sy;
+  const playerLayer = getPlayerLayer();
+  const playerParallax = getParallaxFactor(playerLayer);
+  
+  // Calculate raw screen position WITHOUT camera offset or canvas center
+  const scale = state.camera.zoom;
+  const rawScreenX = (worldPos.x - worldPos.y) * COS_THETA * scale;
+  const rawScreenY = (worldPos.x + worldPos.y) * SIN_THETA * scale;
+  
+  // Camera offset is multiplied by parallax during rendering
+  // To center player on their layer, divide by player's parallax
+  state.camera.targetOffsetX = -rawScreenX / playerParallax;
+  state.camera.targetOffsetY = -rawScreenY / playerParallax;
   
   if (!state.isDragging) {
     state.camera.offsetX += (state.camera.targetOffsetX - state.camera.offsetX) * 0.1;
@@ -392,6 +402,15 @@ function render() {
   // Render by layers (back to front): Layer 0 → Layer 4
   for (let layerIdx = 0; layerIdx < LAYER_COUNT; layerIdx++) {
     const parallax = getParallaxFactor(layerIdx);
+    const zOffset = getZIndexOffset(layerIdx);
+    
+    ctx.save();
+    // Apply Z-axis offset as screen-space translation
+    // Positive Z moves layer DOWN (appears lower in screen space)
+    // We invert it so positive Z appears higher/closer
+    if (zOffset !== 0) {
+      ctx.translate(0, -zOffset);  // Negative = up (foreground)
+    }
     
     // Draw tiles for this layer
     for (let c = 0; c < mapSize; c++) {
@@ -402,8 +421,8 @@ function render() {
       }
     }
     
-    // Draw grid for this layer (only once for layer 0)
-    if (layerIdx === 0) drawGrid(1);
+    // Draw grid for this layer (each layer shows its own grid with correct parallax)
+    drawGrid(parallax);
     
     // Draw entities for this layer
     for (const entity of state.entities) {
@@ -419,6 +438,8 @@ function render() {
         drawCloud(cloud, layerIdx);
       }
     }
+    
+    ctx.restore();  // Restore context after Z-axis translation
   }
   
   if (state.showDebug) {
@@ -439,21 +460,30 @@ function render() {
     ctx.fillText(`World: (${state.mouse.worldX.toFixed(1)}, ${state.mouse.worldY.toFixed(1)})`, 10, y); y += lineH;
     ctx.fillText(`Grid: (${state.mouse.gridCol}, ${state.mouse.gridRow})`, 10, y); y += lineH;
     const mouseLayer = state.mouse.layer || getLayerForDepth(state.mouse.gridCol + state.mouse.gridRow);
-    ctx.fillText(`Layer: ${mouseLayer} (α:${(getLayerAlpha(mouseLayer)*100).toFixed(0)}% Z:+${getZIndexOffset(mouseLayer)})`, 10, y); y += lineH;
+    ctx.fillText(`Layer: ${mouseLayer} (α:${(getLayerAlpha(mouseLayer)*100).toFixed(0)}% Z:${getZIndexOffset(mouseLayer)}px)`, 10, y); y += lineH;
     ctx.fillText(`Player Layer: ${getPlayerLayer()} (parallax: ${(getPlayerLayerParallax()*100).toFixed(0)}%)`, 10, y); y += lineH;
     
-    // Highlight mouse tile using player's layer parallax
+    // Highlight mouse tile on player's layer (with Z-axis offset)
     const { gridCol, gridRow } = state.mouse;
     if (gridCol >= 0 && gridCol < mapSize && gridRow >= 0 && gridRow < mapSize) {
+      const playerLayer = getPlayerLayer();
+      const playerParallax = getPlayerLayerParallax();
+      const playerZOffset = getZIndexOffset(playerLayer);
+      
       const worldPos = gridToWorld(gridCol, gridRow);
-      const layerIdx = state.mouse.layer || getLayerForDepth(gridCol + gridRow);
-      const parallax = getParallaxFactor(layerIdx);
       const corners = [
-        worldToScreen(worldPos.x, worldPos.y, 0, parallax),
-        worldToScreen(worldPos.x + CELL_SIZE, worldPos.y, 0, parallax),
-        worldToScreen(worldPos.x + CELL_SIZE, worldPos.y + CELL_SIZE, 0, parallax),
-        worldToScreen(worldPos.x, worldPos.y + CELL_SIZE, 0, parallax)
+        worldToScreen(worldPos.x, worldPos.y, 0, playerParallax),
+        worldToScreen(worldPos.x + CELL_SIZE, worldPos.y, 0, playerParallax),
+        worldToScreen(worldPos.x + CELL_SIZE, worldPos.y + CELL_SIZE, 0, playerParallax),
+        worldToScreen(worldPos.x, worldPos.y + CELL_SIZE, 0, playerParallax)
       ];
+      
+      // Apply Z-axis offset for player's layer
+      ctx.save();
+      if (playerZOffset !== 0) {
+        ctx.translate(0, playerZOffset);
+      }
+      
       ctx.beginPath();
       ctx.moveTo(corners[0].sx, corners[0].sy);
       for (let i = 1; i < 4; i++) ctx.lineTo(corners[i].sx, corners[i].sy);
@@ -461,6 +491,8 @@ function render() {
       ctx.strokeStyle = '#ffff00';
       ctx.lineWidth = 2;
       ctx.stroke();
+      
+      ctx.restore();
     }
   }
   
@@ -537,9 +569,15 @@ canvas.addEventListener('mousemove', e => {
   state.mouse.screenX = e.clientX - rect.left;
   state.mouse.screenY = e.clientY - rect.top;
   
-  // Use player's layer parallax for mouse coordinate calculation
+  // Use player's layer parallax and Z-offset for mouse coordinate calculation
   const playerParallax = getPlayerLayerParallax();
-  const world = screenToWorld(state.mouse.screenX, state.mouse.screenY, playerParallax);
+  const playerZOffset = getZIndexOffset(getPlayerLayer());
+  
+  // Adjust screen coordinates for Z-axis offset
+  const adjScreenX = state.mouse.screenX;
+  const adjScreenY = state.mouse.screenY - playerZOffset;
+  
+  const world = screenToWorld(adjScreenX, adjScreenY, playerParallax);
   state.mouse.worldX = world.x;
   state.mouse.worldY = world.y;
   
@@ -562,9 +600,15 @@ canvas.addEventListener('wheel', e => {
 });
 canvas.addEventListener('click', e => {
   const rect = canvas.getBoundingClientRect();
-  // Use player's layer parallax for click coordinate calculation
+  // Use player's layer parallax and Z-offset for click coordinate calculation
   const playerParallax = getPlayerLayerParallax();
-  const world = screenToWorld(e.clientX - rect.left, e.clientY - rect.top, playerParallax);
+  const playerZOffset = getZIndexOffset(getPlayerLayer());
+  
+  // Adjust screen coordinates for Z-axis offset
+  const screenX = e.clientX - rect.left;
+  const screenY = e.clientY - rect.top - playerZOffset;
+  
+  const world = screenToWorld(screenX, screenY, playerParallax);
   const grid = worldToGrid(world.x, world.y);
   if (grid.col >= 0 && grid.col < mapSize && grid.row >= 0 && grid.row < mapSize && tiles[grid.col][grid.row].walkable) {
     state.player.col = grid.col;
@@ -592,10 +636,17 @@ document.addEventListener('keydown', e => {
 
 function centerCamera() {
   const worldPos = gridToWorld(state.player.col, state.player.row);
-  // Use parallax = 1 (no parallax) for camera centering
-  const screen = worldToScreen(worldPos.x, worldPos.y, 0, 1.0);
-  state.camera.offsetX = canvas.width / 2 - screen.sx;
-  state.camera.offsetY = canvas.height / 2 - screen.sy;
+  const playerLayer = getPlayerLayer();
+  const playerParallax = getParallaxFactor(playerLayer);
+  
+  // Calculate raw screen position WITHOUT camera offset or canvas center
+  const scale = state.camera.zoom;
+  const rawScreenX = (worldPos.x - worldPos.y) * COS_THETA * scale;
+  const rawScreenY = (worldPos.x + worldPos.y) * SIN_THETA * scale;
+  
+  // Set offset directly to center player on their layer
+  state.camera.offsetX = -rawScreenX / playerParallax;
+  state.camera.offsetY = -rawScreenY / playerParallax;
   state.camera.targetOffsetX = state.camera.offsetX;
   state.camera.targetOffsetY = state.camera.offsetY;
 }
