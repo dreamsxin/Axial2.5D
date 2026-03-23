@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Axial2.5D Demo - Fixed</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #1a1a2e; color: #fff; overflow: hidden; }
+    #container { display: flex; height: 100vh; }
+    #canvas-container { flex: 1; display: flex; justify-content: center; align-items: center; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); }
+    canvas { border: 2px solid #4a4a6a; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+    #sidebar { width: 260px; background: rgba(0,0,0,0.3); padding: 15px; overflow-y: auto; border-left: 1px solid #4a4a6a; }
+    h1 { font-size: 1.4em; margin-bottom: 10px; color: #4a90d9; }
+    h2 { font-size: 1em; margin: 15px 0 8px; color: #6a8caf; border-bottom: 1px solid #4a4a6a; padding-bottom: 5px; }
+    .stat { margin: 5px 0; font-size: 0.85em; color: #aaa; }
+    .stat span { color: #fff; }
+    button { width: 100%; padding: 8px; margin: 4px 0; background: #4a4a6a; border: none; border-radius: 4px; color: #fff; cursor: pointer; }
+    button:hover { background: #5a5a7a; }
+    button.active { background: #4a90d9; }
+    .key { display: inline-block; background: #333; padding: 2px 5px; border-radius: 3px; font-size: 0.75em; margin: 1px; }
+    #log { background: rgba(0,0,0,0.3); border: 1px solid #4a4a6a; border-radius: 4px; padding: 8px; height: 120px; overflow-y: auto; font-family: monospace; font-size: 0.75em; }
+    .log-msg { margin: 2px 0; color: #888; }
+    .log-info { color: #4a90d9; }
+    .log-success { color: #4ad97a; }
+  </style>
+</head>
+<body>
+<div id="container">
+  <div id="canvas-container"><canvas id="canvas" width="800" height="600"></canvas></div>
+  <div id="sidebar">
+    <h1>🎮 Axial2.5D Demo</h1>
+    <h2>📊 Status</h2>
+    <div class="stat">FPS: <span id="fps">0</span></div>
+    <div class="stat">Entities: <span id="entities">0</span></div>
+    <div class="stat">Player: <span id="playerPos">0, 0</span></div>
+    <h2>🎯 Controls</h2>
+    <div class="stat"><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span> Move</div>
+    <div class="stat"><span class="key">Click</span> Move to tile</div>
+    <div class="stat"><span class="key">Drag</span> Pan camera</div>
+    <div class="stat"><span class="key">Wheel</span> Zoom</div>
+    <h2>⚙️ Settings</h2>
+    <button id="btnGrid" onclick="toggleGrid()">📐 Grid</button>
+    <button id="btnWire" onclick="toggleWireframe()">🔲 Wireframe</button>
+    <button id="btnDebug" onclick="toggleDebug()">🐛 Debug</button>
+    <button onclick="resetCam()">📷 Reset Camera</button>
+    <button onclick="teleport()">🚀 Teleport</button>
+    <h2>📜 Log</h2>
+    <div id="log"></div>
+  </div>
+</div>
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+// as3isolib uses 30 degree tilt angle
+const COS_THETA = Math.cos(30 * Math.PI / 180);  // ≈ 0.866
+const SIN_THETA = Math.sin(30 * Math.PI / 180);  // = 0.5
+
+// State
+const state = {
+  showGrid: true,
+  showWireframe: false,
+  showDebug: false,
+  player: { col: 6, row: 6 },
+  camera: { offsetX: 0, offsetY: 0, zoom: 1, targetOffsetX: 0, targetOffsetY: 0 },
+  entities: [],
+  lastTime: 0,
+  frameCount: 0,
+  fps: 0,
+  isMoving: false,
+  mouse: { screenX: 0, screenY: 0, worldX: 0, worldY: 0, gridCol: 0, gridRow: 0, overTile: null }
+};
+
+// FIX: Use uniform cell size like as3isolib
+const CELL_SIZE = 50;  // Uniform cell size (matching as3isolib cellSize)
+
+// Projection matching as3isolib IsoMath.isoToScreen
+function worldToScreen(worldX, worldY, worldZ) {
+  const scale = state.camera.zoom;
+  const screenX = (worldX - worldY) * COS_THETA * scale;
+  const screenY = (worldX + worldY) * SIN_THETA * scale - worldZ * scale;
+  return {
+    sx: screenX + state.camera.offsetX + canvas.width / 2,
+    sy: screenY + state.camera.offsetY + canvas.height / 2
+  };
+}
+
+function screenToWorld(screenX, screenY) {
+  const scale = state.camera.zoom;
+  const adjX = (screenX - canvas.width / 2 - state.camera.offsetX) / scale;
+  const adjY = (screenY - canvas.height / 2 - state.camera.offsetY) / scale;
+  const worldX = (adjX / COS_THETA + adjY / SIN_THETA) / 2;
+  const worldY = (adjY / SIN_THETA - adjX / COS_THETA) / 2;
+  return { x: worldX, y: worldY };
+}
+
+// FIX: Grid to world uses uniform CELL_SIZE
+function gridToWorld(col, row) {
+  return {
+    x: col * CELL_SIZE,
+    y: row * CELL_SIZE
+  };
+}
+
+function worldToGrid(worldX, worldY) {
+  return {
+    col: Math.round(worldX / CELL_SIZE),
+    row: Math.round(worldY / CELL_SIZE)
+  };
+}
+
+// Map
+const mapSize = 12;
+const tiles = [];
+for (let c = 0; c < mapSize; c++) {
+  tiles[c] = [];
+  for (let r = 0; r < mapSize; r++) {
+    let type = 'grass', walkable = true;
+    if (c === 0 || c === mapSize-1 || r === 0 || r === mapSize-1) { type = 'water'; walkable = false; }
+    if (c === 6 || r === 6) type = 'road';
+    if ((c+r) % 4 === 0 && c > 1 && c < mapSize-2 && r > 1 && r < mapSize-2) type = 'stone';
+    tiles[c][r] = { type, walkable };
+  }
+}
+
+// Buildings
+const buildings = [
+  { id: 'townhall', col: 6, row: 6, width: 150, length: 150, height: 100 },
+  { id: 'house1', col: 2, row: 2, width: 100, length: 100, height: 70 },
+  { id: 'house2', col: 9, row: 2, width: 100, length: 100, height: 70 },
+  { id: 'house3', col: 2, row: 9, width: 100, length: 100, height: 70 },
+  { id: 'warehouse', col: 9, row: 9, width: 120, length: 100, height: 60 }
+];
+
+const buildingColors = [
+  ['#f5deb3', '#deb887', '#cd853f', '#b8860b', '#daa520', '#8b4513'],
+  ['#8b0000', '#a52a2a', '#8b0000', '#654321', '#8b4513', '#654321'],
+  ['#2e8b57', '#3cb371', '#2e8b57', '#654321', '#8b4513', '#654321'],
+  ['#4169e1', '#6495ed', '#4169e1', '#654321', '#8b4513', '#654321'],
+  ['#708090', '#778899', '#708090', '#654321', '#8b4513', '#654321']
+];
+
+const playerEntity = { id: 'player', col: state.player.col, row: state.player.row, width: 50, length: 50, height: 70 };
+state.entities = [...buildings, playerEntity];
+
+const colors = { grass: '#4a7c4e', water: '#4a90a4', road: '#666666', stone: '#888888', sand: '#c2b280' };
+
+// Draw isometric tile - FIX: Square tiles in world space
+function drawTile(col, row, type) {
+  const worldPos = gridToWorld(col, row);
+  // Tile corners in world space (square tiles)
+  const corners = [
+    { x: worldPos.x, y: worldPos.y },
+    { x: worldPos.x + CELL_SIZE, y: worldPos.y },
+    { x: worldPos.x + CELL_SIZE, y: worldPos.y + CELL_SIZE },
+    { x: worldPos.x, y: worldPos.y + CELL_SIZE }
+  ];
+  
+  const screenCorners = corners.map(c => worldToScreen(c.x, c.y, 0));
+  
+  ctx.beginPath();
+  ctx.moveTo(screenCorners[0].sx, screenCorners[0].sy);
+  for (let i = 1; i < 4; i++) {
+    ctx.lineTo(screenCorners[i].sx, screenCorners[i].sy);
+  }
+  ctx.closePath();
+  ctx.fillStyle = colors[type] || '#4a4a4a';
+  ctx.fill();
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+}
+
+// Draw box matching as3isolib IsoBox
+function drawBox(entity) {
+  const baseX = entity.col * CELL_SIZE;
+  const baseY = entity.row * CELL_SIZE;
+  const w = entity.width;
+  const l = entity.length;
+  const h = entity.height;
+  
+  // Calculate 8 corners
+  const corners = {
+    lbb: worldToScreen(baseX, baseY, 0),
+    rbb: worldToScreen(baseX + w, baseY, 0),
+    rfb: worldToScreen(baseX + w, baseY + l, 0),
+    lfb: worldToScreen(baseX, baseY + l, 0),
+    lbt: worldToScreen(baseX, baseY, h),
+    rbt: worldToScreen(baseX + w, baseY, h),
+    rft: worldToScreen(baseX + w, baseY + l, h),
+    lft: worldToScreen(baseX, baseY + l, h)
+  };
+  
+  const entityIndex = buildings.indexOf(entity);
+  const colors = entityIndex >= 0 ? buildingColors[entityIndex] : ['#ccc', '#aaa', '#888'];
+  
+  if (!state.showWireframe) {
+    // Bottom face
+    ctx.beginPath();
+    ctx.moveTo(corners.lbb.sx, corners.lbb.sy);
+    ctx.lineTo(corners.rbb.sx, corners.rbb.sy);
+    ctx.lineTo(corners.rfb.sx, corners.rfb.sy);
+    ctx.lineTo(corners.lfb.sx, corners.lfb.sy);
+    ctx.closePath();
+    ctx.fillStyle = colors[5] || '#666';
+    ctx.fill();
+    ctx.stroke();
+    
+    // Back-left face
+    ctx.beginPath();
+    ctx.moveTo(corners.lbb.sx, corners.lbb.sy);
+    ctx.lineTo(corners.lfb.sx, corners.lfb.sy);
+    ctx.lineTo(corners.lft.sx, corners.lft.sy);
+    ctx.lineTo(corners.lbt.sx, corners.lbt.sy);
+    ctx.closePath();
+    ctx.fillStyle = colors[4] || '#888';
+    ctx.fill();
+    ctx.stroke();
+    
+    // Back-right face
+    ctx.beginPath();
+    ctx.moveTo(corners.lbb.sx, corners.lbb.sy);
+    ctx.lineTo(corners.rbb.sx, corners.rbb.sy);
+    ctx.lineTo(corners.rbt.sx, corners.rbt.sy);
+    ctx.lineTo(corners.lbt.sx, corners.lbt.sy);
+    ctx.closePath();
+    ctx.fillStyle = colors[3] || '#999';
+    ctx.fill();
+    ctx.stroke();
+    
+    // Front-left face
+    ctx.beginPath();
+    ctx.moveTo(corners.lfb.sx, corners.lfb.sy);
+    ctx.lineTo(corners.rfb.sx, corners.rfb.sy);
+    ctx.lineTo(corners.rft.sx, corners.rft.sy);
+    ctx.lineTo(corners.lft.sx, corners.lft.sy);
+    ctx.closePath();
+    ctx.fillStyle = colors[2] || '#aaa';
+    ctx.fill();
+    ctx.stroke();
+    
+    // Front-right face
+    ctx.beginPath();
+    ctx.moveTo(corners.rbb.sx, corners.rbb.sy);
+    ctx.lineTo(corners.rfb.sx, corners.rfb.sy);
+    ctx.lineTo(corners.rft.sx, corners.rft.sy);
+    ctx.lineTo(corners.rbt.sx, corners.rbt.sy);
+    ctx.closePath();
+    ctx.fillStyle = colors[1] || '#bbb';
+    ctx.fill();
+    ctx.stroke();
+    
+    // Top face
+    ctx.beginPath();
+    ctx.moveTo(corners.lbt.sx, corners.lbt.sy);
+    ctx.lineTo(corners.rbt.sx, corners.rbt.sy);
+    ctx.lineTo(corners.rft.sx, corners.rft.sy);
+    ctx.lineTo(corners.lft.sx, corners.lft.sy);
+    ctx.closePath();
+    ctx.fillStyle = colors[0] || '#ccc';
+    ctx.fill();
+    ctx.stroke();
+  }
+  
+  // Wireframe
+  ctx.strokeStyle = state.showWireframe ? '#fff' : '#444';
+  ctx.lineWidth = 2;
+  
+  // Bottom edges
+  ctx.beginPath();
+  ctx.moveTo(corners.lbb.sx, corners.lbb.sy);
+  ctx.lineTo(corners.rbb.sx, corners.rbb.sy);
+  ctx.lineTo(corners.rfb.sx, corners.rfb.sy);
+  ctx.lineTo(corners.lfb.sx, corners.lfb.sy);
+  ctx.closePath();
+  ctx.stroke();
+  
+  // Top edges
+  ctx.beginPath();
+  ctx.moveTo(corners.lbt.sx, corners.lbt.sy);
+  ctx.lineTo(corners.rbt.sx, corners.rbt.sy);
+  ctx.lineTo(corners.rft.sx, corners.rft.sy);
+  ctx.lineTo(corners.lft.sx, corners.lft.sy);
+  ctx.closePath();
+  ctx.stroke();
+  
+  // Vertical edges
+  ctx.beginPath();
+  ctx.moveTo(corners.lbb.sx, corners.lbb.sy); ctx.lineTo(corners.lbt.sx, corners.lbt.sy);
+  ctx.moveTo(corners.rbb.sx, corners.rbb.sy); ctx.lineTo(corners.rbt.sx, corners.rbt.sy);
+  ctx.moveTo(corners.rfb.sx, corners.rfb.sy); ctx.lineTo(corners.rft.sx, corners.rft.sy);
+  ctx.moveTo(corners.lfb.sx, corners.lfb.sy); ctx.lineTo(corners.lft.sx, corners.lft.sy);
+  ctx.stroke();
+}
+
+function drawGrid() {
+  if (!state.showGrid) return;
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+  ctx.lineWidth = 1;
+  
+  for (let c = 0; c <= mapSize; c++) {
+    const start = gridToWorld(c, 0);
+    const end = gridToWorld(c, mapSize);
+    const s1 = worldToScreen(start.x, start.y, 0);
+    const s2 = worldToScreen(end.x, end.y, 0);
+    ctx.beginPath(); ctx.moveTo(s1.sx, s1.sy); ctx.lineTo(s2.sx, s2.sy); ctx.stroke();
+  }
+  
+  for (let r = 0; r <= mapSize; r++) {
+    const start = gridToWorld(0, r);
+    const end = gridToWorld(mapSize, r);
+    const s1 = worldToScreen(start.x, start.y, 0);
+    const s2 = worldToScreen(end.x, end.y, 0);
+    ctx.beginPath(); ctx.moveTo(s1.sx, s1.sy); ctx.lineTo(s2.sx, s2.sy); ctx.stroke();
+  }
+}
+
+function getEntityDepth(entity) {
+  const worldPos = gridToWorld(entity.col, entity.row);
+  const screen = worldToScreen(worldPos.x, worldPos.y, 0);
+  return screen.sy + entity.height;
+}
+
+// FIX: Smooth camera lerp
+function updateCamera() {
+  const worldPos = gridToWorld(state.player.col, state.player.row);
+  const screen = worldToScreen(worldPos.x, worldPos.y, 0);
+  
+  // Calculate target camera offset (center player)
+  state.camera.targetOffsetX = canvas.width / 2 - screen.sx;
+  state.camera.targetOffsetY = canvas.height / 2 - screen.sy;
+  
+  // Smooth lerp (10% per frame)
+  if (!state.isDragging) {
+    state.camera.offsetX += (state.camera.targetOffsetX - state.camera.offsetX) * 0.1;
+    state.camera.offsetY += (state.camera.targetOffsetY - state.camera.offsetY) * 0.1;
+  }
+}
+
+function render() {
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  
+  updateCamera();
+  
+  for (let c = 0; c < mapSize; c++) {
+    for (let r = 0; r < mapSize; r++) {
+      drawTile(c, r, tiles[c][r].type);
+    }
+  }
+  
+  drawGrid();
+  
+  const sorted = [...state.entities].sort((a, b) => getEntityDepth(a) - getEntityDepth(b));
+  for (const entity of sorted) drawBox(entity);
+  
+  if (state.showDebug) {
+    ctx.fillStyle = '#0f0';
+    ctx.font = '12px monospace';
+    let y = 20;
+    const lineH = 16;
+    
+    ctx.fillText(`FPS: ${state.fps}`, 10, y); y += lineH;
+    ctx.fillText(`Entities: ${state.entities.length}`, 10, y); y += lineH;
+    ctx.fillText(`Player: (${state.player.col}, ${state.player.row})`, 10, y); y += lineH;
+    ctx.fillText(`Camera: (${state.camera.offsetX.toFixed(0)}, ${state.camera.offsetY.toFixed(0)})`, 10, y); y += lineH;
+    ctx.fillText(`Zoom: ${state.camera.zoom.toFixed(2)}`, 10, y); y += lineH;
+    y += 5;
+    
+    // Mouse coordinates
+    ctx.fillStyle = '#ff0';
+    ctx.fillText('=== Mouse ===', 10, y); y += lineH;
+    ctx.fillStyle = '#0f0';
+    ctx.fillText(`Screen: (${state.mouse.screenX.toFixed(0)}, ${state.mouse.screenY.toFixed(0)})`, 10, y); y += lineH;
+    ctx.fillText(`World: (${state.mouse.worldX.toFixed(1)}, ${state.mouse.worldY.toFixed(1)})`, 10, y); y += lineH;
+    ctx.fillText(`Grid: (${state.mouse.gridCol}, ${state.mouse.gridRow})`, 10, y); y += lineH;
+    
+    if (state.mouse.overTile) {
+      ctx.fillText(`Tile: ${state.mouse.overTile.type} (${state.mouse.overTile.walkable ? 'walkable' : 'blocked'})`, 10, y);
+    } else {
+      ctx.fillText(`Tile: out of bounds`, 10, y);
+    }
+    
+    // Draw mouse cursor highlight
+    const gridCol = state.mouse.gridCol;
+    const gridRow = state.mouse.gridRow;
+    if (gridCol >= 0 && gridCol < mapSize && gridRow >= 0 && gridRow < mapSize) {
+      const worldPos = gridToWorld(gridCol, gridRow);
+      const corners = [
+        worldToScreen(worldPos.x, worldPos.y, 0),
+        worldToScreen(worldPos.x + CELL_SIZE, worldPos.y, 0),
+        worldToScreen(worldPos.x + CELL_SIZE, worldPos.y + CELL_SIZE, 0),
+        worldToScreen(worldPos.x, worldPos.y + CELL_SIZE, 0)
+      ];
+      ctx.beginPath();
+      ctx.moveTo(corners[0].sx, corners[0].sy);
+      for (let i = 1; i < 4; i++) ctx.lineTo(corners[i].sx, corners[i].sy);
+      ctx.closePath();
+      ctx.strokeStyle = '#ffff00';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  }
+}
+
+// Input
+let isDragging = false, lastX, lastY;
+state.isDragging = false;
+
+canvas.addEventListener('mousedown', e => { isDragging = true; lastX = e.clientX; lastY = e.clientY; state.isDragging = true; });
+canvas.addEventListener('mouseup', () => { isDragging = false; state.isDragging = false; });
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  state.mouse.screenX = e.clientX - rect.left;
+  state.mouse.screenY = e.clientY - rect.top;
+  
+  // Calculate world coordinates
+  const world = screenToWorld(state.mouse.screenX, state.mouse.screenY);
+  state.mouse.worldX = world.x;
+  state.mouse.worldY = world.y;
+  
+  // Calculate grid coordinates
+  const grid = worldToGrid(world.x, world.y);
+  state.mouse.gridCol = grid.col;
+  state.mouse.gridRow = grid.row;
+  state.mouse.overTile = (grid.col >= 0 && grid.col < mapSize && grid.row >= 0 && grid.row < mapSize) 
+    ? tiles[grid.col][grid.row] 
+    : null;
+  
+  if (isDragging) {
+    state.camera.offsetX += e.clientX - lastX;
+    state.camera.offsetY += e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+  }
+});
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  state.camera.zoom *= e.deltaY > 0 ? 0.9 : 1.1;
+  state.camera.zoom = Math.max(0.5, Math.min(3, state.camera.zoom));
+});
+canvas.addEventListener('click', e => {
+  const rect = canvas.getBoundingClientRect();
+  const world = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+  const grid = worldToGrid(world.x, world.y);
+  if (grid.col >= 0 && grid.col < mapSize && grid.row >= 0 && grid.row < mapSize && tiles[grid.col][grid.row].walkable) {
+    state.player.col = grid.col;
+    state.player.row = grid.row;
+    playerEntity.col = grid.col;
+    playerEntity.row = grid.row;
+    log(`Moved to (${grid.col}, ${grid.row})`, 'info');
+  }
+});
+
+document.addEventListener('keydown', e => {
+  let { col, row } = state.player;
+  if (e.key === 'w' || e.key === 'ArrowUp') row--;
+  if (e.key === 's' || e.key === 'ArrowDown') row++;
+  if (e.key === 'a' || e.key === 'ArrowLeft') col--;
+  if (e.key === 'd' || e.key === 'ArrowRight') col++;
+  if (col >= 0 && col < mapSize && row >= 0 && row < mapSize && tiles[col][row].walkable) {
+    state.player.col = col;
+    state.player.row = row;
+    playerEntity.col = col;
+    playerEntity.row = row;
+    log(`Moved to (${col}, ${row})`, 'info');
+  }
+});
+
+function centerCamera() {
+  const worldPos = gridToWorld(state.player.col, state.player.row);
+  const screen = worldToScreen(worldPos.x, worldPos.y, 0);
+  state.camera.offsetX = canvas.width / 2 - screen.sx;
+  state.camera.offsetY = canvas.height / 2 - screen.sy;
+  state.camera.targetOffsetX = state.camera.offsetX;
+  state.camera.targetOffsetY = state.camera.offsetY;
+}
+
+function toggleGrid() { state.showGrid = !state.showGrid; document.getElementById('btnGrid').classList.toggle('active', state.showGrid); }
+function toggleWireframe() { state.showWireframe = !state.showWireframe; document.getElementById('btnWire').classList.toggle('active', state.showWireframe); }
+function toggleDebug() { state.showDebug = !state.showDebug; document.getElementById('btnDebug').classList.toggle('active', state.showDebug); }
+function resetCam() { centerCamera(); state.camera.zoom = 1; log('Camera reset', 'info'); }
+function teleport() {
+  let attempts = 0;
+  while (attempts < 100) {
+    const c = Math.floor(Math.random() * (mapSize - 2)) + 1;
+    const r = Math.floor(Math.random() * (mapSize - 2)) + 1;
+    if (tiles[c][r].walkable) {
+      state.player.col = c; state.player.row = r;
+      playerEntity.col = c; playerEntity.row = r;
+      log(`Teleported to (${c}, ${r})`, 'success');
+      return;
+    }
+    attempts++;
+  }
+}
+
+function log(msg, type = '') {
+  const logEl = document.getElementById('log');
+  const entry = document.createElement('div');
+  entry.className = `log-msg log-${type}`;
+  entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  logEl.appendChild(entry);
+  logEl.scrollTop = logEl.scrollHeight;
+  while (logEl.children.length > 30) logEl.removeChild(logEl.firstChild);
+}
+
+function loop(time) {
+  const delta = time - state.lastTime;
+  state.lastTime = time;
+  state.frameCount++;
+  if (delta >= 1000) { state.fps = state.frameCount; state.frameCount = 0; }
+  render();
+  document.getElementById('fps').textContent = state.fps;
+  document.getElementById('entities').textContent = state.entities.length;
+  document.getElementById('playerPos').textContent = `${state.player.col}, ${state.player.row}`;
+  requestAnimationFrame(loop);
+}
+
+centerCamera();
+log('Axial2.5D Demo (fixed) started!', 'success');
+log(`Uniform cell size: ${CELL_SIZE}`, 'info');
+log('Smooth camera following enabled', 'info');
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

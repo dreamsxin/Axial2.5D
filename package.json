@@ -1,0 +1,32 @@
+{
+  "name": "axial-2-5d",
+  "version": "1.0.0",
+  "description": "A native Canvas 2D API isometric/dimetric game framework",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "tsc && node dist/tests/index.js",
+    "demo": "tsc && node dist/examples/demo.js",
+    "server": "tsc && node dist/server/demo-server.js",
+    "start": "npm run server"
+  },
+  "keywords": [
+    "isometric",
+    "dimetric",
+    "2.5d",
+    "canvas",
+    "game",
+    "framework"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0"
+  },
+  "optionalDependencies": {
+    "canvas": "^2.11.2"
+  }
+}
