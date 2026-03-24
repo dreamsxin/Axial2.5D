@@ -48,15 +48,15 @@
     <button onclick="regenerateClouds()">☁️ Regenerate Clouds</button>
     <div style="margin-top:10px;">
       <label style="font-size:0.8em;color:#888;">前景透明度：<span id="fgAlphaVal">0.6</span></label>
-      <input type="range" min="0.2" max="1.0" step="0.1" value="0.6" style="width:100%;" oninput="updateLayerSettings()">
+      <input type="range" min="0.2" max="1.0" step="0.1" value="0.6" style="width:100%;" oninput="updateLayerSettings()" aria-label="foreground-alpha">
     </div>
     <div style="margin-top:8px;">
       <label style="font-size:0.8em;color:#888;">Z 轴间距：<span id="zStepVal">30</span></label>
-      <input type="range" min="0" max="100" step="10" value="30" style="width:100%;" oninput="updateLayerSettings()">
+      <input type="range" min="0" max="100" step="10" value="30" style="width:100%;" oninput="updateLayerSettings()" aria-label="z-index-step">
     </div>
     <div style="margin-top:8px;">
       <label style="font-size:0.8em;color:#888;">视差范围：<span id="parallaxRangeVal">0.7</span></label>
-      <input type="range" min="0" max="1.0" step="0.1" value="0.7" style="width:100%;" oninput="updateLayerSettings()">
+      <input type="range" min="0" max="1.0" step="0.1" value="0.7" style="width:100%;" oninput="updateLayerSettings()" aria-label="parallax-range">
     </div>
     <h2>📊 Layers</h2>
     <div id="layerList"></div>
@@ -348,9 +348,12 @@ window.resetCamera = () => {
 };
 
 window.updateLayerSettings = () => {
-  const fgAlphaInput = document.getElementById('fgAlphaVal').parentElement.querySelector('input');
-  const zStepInput = document.getElementById('zStepVal').parentElement.querySelector('input');
-  const parallaxInput = document.getElementById('parallaxRangeVal').parentElement.querySelector('input');
+  // Find input elements directly (they are siblings of the span labels)
+  const fgAlphaInput = document.querySelector('input[aria-label="foreground-alpha"]');
+  const zStepInput = document.querySelector('input[aria-label="z-index-step"]');
+  const parallaxInput = document.querySelector('input[aria-label="parallax-range"]');
+  
+  if (!fgAlphaInput || !zStepInput || !parallaxInput) return;
   
   const fgAlpha = parseFloat(fgAlphaInput.value);
   const zIndexStep = parseInt(zStepInput.value);
