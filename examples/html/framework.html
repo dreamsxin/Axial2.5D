@@ -149,9 +149,9 @@ function initCamera() {
   const playerParallax = layerManager.calculateParallaxFactor(playerLayer);
   const worldPos = gridToWorld(state.player.col, state.player.row, CONFIG.cellSize);
   
-  // Instant snap to player initially (no smoothing)
+  // Instant snap to player initially (match standalone.html behavior)
   game.renderer.camera.follow(worldPos.x, worldPos.y, 0, game.projection, {
-    smoothness: 0,  // Instant
+    smoothness: 0,  // Instant (0 = no interpolation)
     parallaxFactor: playerParallax
   });
 }
@@ -359,14 +359,14 @@ function updateCamera() {
   
   const worldPos = gridToWorld(state.player.col, state.player.row, CONFIG.cellSize);
   
-  // Simple follow with smoothness
+  // Simple follow with smoothness (match standalone.html: 0.1 = 10% interpolation)
   game.renderer.camera.follow(
     worldPos.x,
     worldPos.y,
     0,  // ground level
     game.projection,
     {
-      smoothness: 0.1,  // Lower = tighter follow (0.1 = move 10% toward target each frame)
+      smoothness: 0.1,  // Move 10% toward target each frame
       parallaxFactor: playerParallax
     }
   );

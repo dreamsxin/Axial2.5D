@@ -199,23 +199,21 @@ export class IsoCamera {
       offsetY?: number;
     }
   ): void {
-    const smoothness = options?.smoothness ?? 0.9;
+    const smoothness = options?.smoothness ?? 0;
     const parallaxFactor = options?.parallaxFactor ?? 1.0;
     const offsetX = options?.offsetX ?? 0;
     const offsetY = options?.offsetY ?? 0;
 
-    // Calculate target screen position
+    // Calculate raw screen position WITHOUT canvas center (like standalone.html)
+    // projection.worldToScreen returns position relative to canvas center
     const screenPos = projection.worldToScreen(worldX, worldY, worldZ);
-    const scaledX = screenPos.sx * this.scale;
-    const scaledY = screenPos.sy * this.scale;
+    const rawScreenX = screenPos.sx * this.scale;
+    const rawScreenY = screenPos.sy * this.scale;
 
     // Calculate target camera offset to center the target
-    const targetOffsetX = -scaledX + this.canvasWidth / 2 + offsetX;
-    const targetOffsetY = -scaledY + this.canvasHeight / 2 + offsetY;
-
-    // Adjust for parallax (target should be centered on its layer)
-    const parallaxAdjustedX = targetOffsetX / parallaxFactor;
-    const parallaxAdjustedY = targetOffsetY / parallaxFactor;
+    // Match standalone.html: targetOffset = -rawScreen / parallax
+    const targetOffsetX = -rawScreenX / parallaxFactor + offsetX;
+    const targetOffsetY = -rawScreenY / parallaxFactor + offsetY;
 
     // Store follow target
     this.followTarget = {
@@ -227,16 +225,15 @@ export class IsoCamera {
       enabled: true
     };
 
-    // Apply smooth or instant movement
+    // Apply smooth or instant movement (match standalone.html: 0.1 = 10% interpolation)
     if (smoothness > 0) {
-      // Smooth interpolation (lerp toward target)
-      // smoothness 0.9 means: move 90% of the way to target each frame
-      this.offsetX = this.offsetX + (parallaxAdjustedX - this.offsetX) * smoothness;
-      this.offsetY = this.offsetY + (parallaxAdjustedY - this.offsetY) * smoothness;
+      // Smooth interpolation: move 'smoothness' percent toward target
+      this.offsetX = this.offsetX + (targetOffsetX - this.offsetX) * smoothness;
+      this.offsetY = this.offsetY + (targetOffsetY - this.offsetY) * smoothness;
     } else {
       // Instant snap
-      this.offsetX = parallaxAdjustedX;
-      this.offsetY = parallaxAdjustedY;
+      this.offsetX = targetOffsetX;
+      this.offsetY = targetOffsetY;
     }
   }
 
