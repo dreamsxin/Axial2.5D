@@ -37,6 +37,7 @@
     <div class="stat">Layers: <span id="layerCount">0</span></div>
     <div class="stat">Player: <span id="playerPos">0, 0</span></div>
     <div class="stat">Occlusion: <span id="occlusionAlpha">100%</span></div>
+    <div class="stat" id="mouseDebug" style="color:#ff0;display:none;">Mouse: --</div>
     <h2>🎯 Controls</h2>
     <div class="stat"><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span> Move</div>
     <div class="stat"><span class="key">Click</span> Move to tile</div>
@@ -226,13 +227,31 @@ game.renderHooks = {
     
     // Render debug items
     if (state.showDebug) {
-      debugRenderer.render(ctx, game.gridSystem, game.renderer.camera, game.projection);
+      const player = game.entityManager.getEntity('player');
+      debugRenderer.render(ctx, game.gridSystem, game.renderer.camera, game.projection, {
+        playerCol: player?.col ?? state.player.col,
+        playerRow: player?.row ?? state.player.row,
+        layerCount: CONFIG.layerCount,
+        maxDepth: 2000,
+        parallaxRange: state.layerSettings.parallaxRange,
+        baseParallax: 0.3
+      });
     }
   },
   
   onBeforePresent: (ctx) => {
     // Update layer list
     updateLayerList();
+    
+    // Update mouse debug display
+    const mouseDebugEl = document.getElementById('mouseDebug');
+    if (mouseDebugEl && state.showDebug) {
+      const mouseInfo = game.inputManager.getMouseGridPosition(state.player.col, state.player.row);
+      mouseDebugEl.style.display = 'block';
+      mouseDebugEl.textContent = `Mouse: Screen(${state.mouse.x.toFixed(0)}, ${state.mouse.y.toFixed(0)}) Grid(${mouseInfo.col}, ${mouseInfo.row}) L${mouseInfo.layer}`;
+    } else if (mouseDebugEl) {
+      mouseDebugEl.style.display = 'none';
+    }
   }
 };
 
@@ -273,19 +292,65 @@ uiBinder.bind('occlusionAlpha', (el) => {
 });
 
 // Setup debug renderer (NEW - Phase 3)
-debugRenderer.addText('info', {
-  getText: () => `FPS: ${state.fps} | Entities: ${game.entityManager.getCount()}`,
-  x: 10, y: 20, color: '#0f0'
+// FPS and stats
+debugRenderer.addText('fps', {
+  getText: () => `FPS: ${state.fps}`,
+  x: 10, y: 20, color: '#0f0',
+  enabled: () => state.showDebug
 });
 
+debugRenderer.addText('stats', {
+  getText: () => `Entities: ${game.entityManager.getCount()} | Draw calls: ${game.renderer.getRenderItemCount()}`,
+  x: 10, y: 36, color: '#fff',
+  enabled: () => state.showDebug
+});
+
+// Player info
+debugRenderer.addText('player', {
+  getText: () => {
+    const player = game.entityManager.getEntity('player');
+    return player ? `Player: (${player.col}, ${player.row})` : 'Player: (0, 0)';
+  },
+  x: 10, y: 52, color: '#4a90d9',
+  enabled: () => state.showDebug
+});
+
+// Camera info
+debugRenderer.addText('camera', {
+  getText: () => `Camera: (${game.renderer.camera.offsetX.toFixed(0)}, ${game.renderer.camera.offsetY.toFixed(0)}) zoom:${game.renderer.camera.scale.toFixed(2)}`,
+  x: 10, y: 68, color: '#aaa',
+  enabled: () => state.showDebug
+});
+
+// Mouse info
+debugRenderer.addText('mouse', {
+  getText: () => {
+    const mx = state.mouse.x ?? 0;
+    const my = state.mouse.y ?? 0;
+    const mouseInfo = game.inputManager.getMouseGridPosition(state.player.col, state.player.row);
+    return `Mouse: Screen(${mx.toFixed(0)}, ${my.toFixed(0)}) Grid(${mouseInfo.col}, ${mouseInfo.row}) L${mouseInfo.layer}`;
+  },
+  x: 10, y: 84, color: '#ff0',
+  enabled: () => state.showDebug
+});
+
+// Mouse tile highlight
 debugRenderer.addTileHighlight('mouse', {
   getTile: () => {
-    if (state.mouse.x === undefined || state.mouse.y === undefined) return null;
     const mouseInfo = game.inputManager.getMouseGridPosition(state.player.col, state.player.row);
-    return mouseInfo;
+    return { col: mouseInfo.col, row: mouseInfo.row };
   },
   color: '#ff0',
-  lineWidth: 2
+  lineWidth: 2,
+  alpha: 0.4,
+  enabled: () => state.showDebug
+});
+
+// Layer info
+debugRenderer.addText('layers', {
+  getText: () => `Layers: ${CONFIG.layerCount} | Parallax: ${state.layerSettings.parallaxRange} | Z-Step: ${state.layerSettings.zIndexStep}`,
+  x: 10, y: 100, color: '#96ceb4',
+  enabled: () => state.showDebug
 });
 
 // Start game loop
@@ -460,6 +525,8 @@ function movePlayer(col, row) {
 window.toggleGrid = () => {
   state.showGrid = !state.showGrid;
   document.getElementById('btnGrid').classList.toggle('active', state.showGrid);
+  // Update game render options to reflect grid setting
+  game.setRenderOptions({ showGrid: state.showGrid });
   log(`Grid ${state.showGrid ? 'enabled' : 'disabled'}`, 'info');
 };
 
@@ -497,6 +564,13 @@ window.updateLayerSettings = () => {
   
   // Update layer manager
   layerManager.updateLayerProperties({
+    foregroundAlpha: fgAlpha,
+    zIndexStep,
+    parallaxRange
+  });
+  
+  // Update game render options
+  game.setRenderOptions({
     foregroundAlpha: fgAlpha,
     zIndexStep,
     parallaxRange

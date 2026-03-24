@@ -250,6 +250,7 @@ export class EntityManager {
 
   /**
    * Render using OcclusionSystem (Phase 2)
+   * Uses southeast corner depth for fine-grained sorting
    */
   private renderWithOcclusionSystem(
     ctx: CanvasRenderingContext2D,
@@ -258,12 +259,11 @@ export class EntityManager {
     wireframe: boolean,
     occlusionSystem: any
   ): void {
-    const sortedEntities = entities.sort((a, b) => a.depth - b.depth);
-
     // Determine which buildings should be semi-transparent
     const semiTransparentBuildings = new Set<string>();
+    
     for (const char of entities) {
-      if (char.height >= 50) continue;
+      if (char.height >= 50) continue; // Skip buildings
       
       if (occlusionSystem.isOccluded(char)) {
         const occlusions = occlusionSystem.getOccludingBuildings(char);
@@ -275,34 +275,36 @@ export class EntityManager {
       }
     }
 
-    // First pass: Draw occluded characters (opaque)
-    for (const entity of sortedEntities) {
-      if (entity.height >= 50) continue;
-      if (!occlusionSystem.isOccluded(entity)) continue;
+    // Sort ALL entities by southeast corner depth (single unified sort)
+    const sortedEntities = entities.sort((a, b) => {
+      const aIsBuilding = a.height >= 50;
+      const bIsBuilding = b.height >= 50;
       
-      this.drawEntity(ctx, entity, parallaxFactor, wireframe, 1.0);
-    }
+      // Calculate southeast corner depth for both entities
+      const aSED = aIsBuilding 
+        ? (a.col + Math.ceil(((a as any).width || 50) / 50) - 1) + (a.row + Math.ceil(((a as any).length || 50) / 50) - 1)
+        : a.col + a.row;
+      
+      const bSED = bIsBuilding 
+        ? (b.col + Math.ceil(((b as any).width || 50) / 50) - 1) + (b.row + Math.ceil(((b as any).length || 50) / 50) - 1)
+        : b.col + b.row;
+      
+      return aSED - bSED;
+    });
 
-    // Second pass: Draw buildings (semi-transparent if occluding)
+    // Single pass: draw all entities in depth order
     for (const entity of sortedEntities) {
-      if (entity.height < 50) continue;
-      
-      const isSemiTransparent = semiTransparentBuildings.has(entity.id);
+      const isBuilding = entity.height >= 50;
+      const isSemiTransparent = isBuilding && semiTransparentBuildings.has(entity.id);
       const alpha = isSemiTransparent ? 0.5 : 1.0;
-      this.drawEntity(ctx, entity, parallaxFactor, wireframe, alpha);
-    }
-
-    // Third pass: Draw non-occluded characters (normal)
-    for (const entity of sortedEntities) {
-      if (entity.height >= 50) continue;
-      if (occlusionSystem.isOccluded(entity)) continue;
       
-      this.drawEntity(ctx, entity, parallaxFactor, wireframe, 1.0);
+      this.drawEntity(ctx, entity, parallaxFactor, wireframe, alpha);
     }
   }
 
   /**
    * Render using internal occlusion map (legacy)
+   * Single-pass rendering with correct depth sorting by southeast corner
    */
   private renderWithInternalOcclusion(
     ctx: CanvasRenderingContext2D,
@@ -310,8 +312,6 @@ export class EntityManager {
     parallaxFactor: number,
     wireframe: boolean
   ): void {
-    const sortedEntities = entities.sort((a, b) => a.depth - b.depth);
-
     // Determine which buildings should be semi-transparent
     const semiTransparentBuildings = new Set<string>();
     for (const char of entities) {
@@ -327,39 +327,29 @@ export class EntityManager {
       }
     }
 
-    // First pass: Draw occluded characters (opaque)
-    for (const entity of sortedEntities) {
-      if (entity.height >= 50) continue;
+    // Sort ALL entities by southeast corner depth (single unified sort)
+    const sortedEntities = entities.sort((a, b) => {
+      const aIsBuilding = a.height >= 50;
+      const bIsBuilding = b.height >= 50;
       
-      const key = `${entity.col},${entity.row}`;
-      const occlusions = this.occlusionMap.get(key) || [];
-      const isOccluded = occlusions.some(occ => occ.height > entity.height);
+      const aSED = aIsBuilding 
+        ? (a.col + Math.ceil(((a as any).width || 50) / 50) - 1) + (a.row + Math.ceil(((a as any).length || 50) / 50) - 1)
+        : a.col + a.row;
       
-      if (isOccluded) {
-        this.drawEntity(ctx, entity, parallaxFactor, wireframe, 1.0);
-      }
-    }
+      const bSED = bIsBuilding 
+        ? (b.col + Math.ceil(((b as any).width || 50) / 50) - 1) + (b.row + Math.ceil(((b as any).length || 50) / 50) - 1)
+        : b.col + b.row;
+      
+      return aSED - bSED;
+    });
 
-    // Second pass: Draw buildings (semi-transparent if occluding)
+    // Single pass: draw all entities in depth order
     for (const entity of sortedEntities) {
-      if (entity.height < 50) continue;
-      
-      const isSemiTransparent = semiTransparentBuildings.has(entity.id);
+      const isBuilding = entity.height >= 50;
+      const isSemiTransparent = isBuilding && semiTransparentBuildings.has(entity.id);
       const alpha = isSemiTransparent ? 0.5 : 1.0;
+      
       this.drawEntity(ctx, entity, parallaxFactor, wireframe, alpha);
-    }
-
-    // Third pass: Draw non-occluded characters (normal)
-    for (const entity of sortedEntities) {
-      if (entity.height >= 50) continue;
-      
-      const key = `${entity.col},${entity.row}`;
-      const occlusions = this.occlusionMap.get(key) || [];
-      const isOccluded = occlusions.some(occ => occ.height > entity.height);
-      
-      if (!isOccluded) {
-        this.drawEntity(ctx, entity, parallaxFactor, wireframe, 1.0);
-      }
     }
   }
 

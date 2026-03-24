@@ -5,12 +5,14 @@
  * - Building height and footprint
  * - View direction (isometric: camera at southeast, looking northwest)
  * - Occlusion shadow casting
+ * - Southeast corner position for fine-grained depth sorting
  * 
  * Features:
  * - Pre-computed occlusion map (efficient runtime queries)
  * - Multi-building occlusion support (multiple buildings can occlude same tile)
  * - Automatic updates when entities move
  * - Integration with rendering for semi-transparent occluding buildings
+ * - Southeast corner depth sorting for correct partial occlusion
  */
 
 import { Entity } from '../core/types';
@@ -20,6 +22,9 @@ import { EntityManager } from '../world/EntityManager';
 export interface OcclusionData {
   buildingId: string;
   height: number;
+  southeastCol: number;  // Southeast corner column for depth sorting
+  southeastRow: number;  // Southeast corner row for depth sorting
+  depth: number;         // Combined depth value (southeastCol + southeastRow)
 }
 
 export interface OcclusionSystemConfig {
@@ -102,6 +107,7 @@ export class OcclusionSystem {
 
   /**
    * Calculate occlusion for a single building
+   * Uses southeast corner position for depth sorting
    */
   private calculateBuildingOcclusion(
     buildingId: string,
@@ -114,6 +120,11 @@ export class OcclusionSystem {
     const colsOccupied = Math.ceil(buildingWidth / this.tileSize);
     const rowsOccupied = Math.ceil(buildingLength / this.tileSize);
     const occlusionSteps = Math.floor(buildingHeight / this.tileSize);
+    
+    // Calculate southeast corner position (for depth sorting)
+    const southeastCol = buildingCol + colsOccupied - 1;
+    const southeastRow = buildingRow + rowsOccupied - 1;
+    const depth = southeastCol + southeastRow;
 
     // For each tile occupied by the building, cast occlusion shadow
     for (let dc = 0; dc < colsOccupied; dc++) {
@@ -140,7 +151,13 @@ export class OcclusionSystem {
                 // Check if this building already occludes this tile
                 const existing = occlusions.find(o => o.buildingId === buildingId);
                 if (!existing) {
-                  occlusions.push({ buildingId, height: buildingHeight });
+                  occlusions.push({ 
+                    buildingId, 
+                    height: buildingHeight,
+                    southeastCol,
+                    southeastRow,
+                    depth
+                  });
                   this.occlusionMap.set(shadowKey, occlusions);
                 }
               }

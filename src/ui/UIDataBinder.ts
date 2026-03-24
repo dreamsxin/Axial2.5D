@@ -140,8 +140,9 @@ export class UIDataBinder {
     this.frameCount++;
 
     for (const [id, binding] of this.bindings) {
-      // Check interval
-      if (this.frameCount % binding.interval !== 0) {
+      // Check interval (default to every frame if not specified)
+      const interval = binding.interval ?? 1;
+      if (this.frameCount % interval !== 0) {
         continue;
       }
 

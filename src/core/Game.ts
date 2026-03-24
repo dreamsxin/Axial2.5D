@@ -58,6 +58,21 @@ export class Game {
   private running: boolean = false;
   private lastTime: number = 0;
   private canvas: HTMLCanvasElement | OffscreenCanvas;
+  private renderOptions: {
+    layerCount?: number;
+    showGrid?: boolean;
+    foregroundAlpha?: number;
+    zIndexStep?: number;
+    parallaxRange?: number;
+    maxDepth?: number;
+  } = {
+    showGrid: true,
+    layerCount: 5,
+    foregroundAlpha: 0.6,
+    zIndexStep: 30,
+    parallaxRange: 0.7,
+    maxDepth: 2000
+  };
   public onBeforeRender?: (ctx: CanvasRenderingContext2D) => void;
   public onAfterRender?: (ctx: CanvasRenderingContext2D) => void;
   public renderHooks?: {
@@ -353,6 +368,27 @@ export class Game {
   }
 
   /**
+   * Set render options
+   */
+  public setRenderOptions(options: {
+    layerCount?: number;
+    showGrid?: boolean;
+    foregroundAlpha?: number;
+    zIndexStep?: number;
+    parallaxRange?: number;
+    maxDepth?: number;
+  }): void {
+    this.renderOptions = { ...this.renderOptions, ...options };
+  }
+
+  /**
+   * Get current render options
+   */
+  public getRenderOptions(): typeof this.renderOptions {
+    return { ...this.renderOptions };
+  }
+
+  /**
    * Create offscreen canvas for Node.js
    */
   private createOffscreenCanvas(width: number, height: number): OffscreenCanvas {
@@ -383,12 +419,13 @@ export class Game {
   }): void {
     if (!this.gridSystem || !this.entityManager) return;
 
-    const layerCount = options?.layerCount ?? 5;
-    const showGrid = options?.showGrid ?? true;
-    const foregroundAlpha = options?.foregroundAlpha ?? 0.6;
-    const zIndexStep = options?.zIndexStep ?? 30;
-    const parallaxRange = options?.parallaxRange ?? 0.7;
-    const maxDepth = options?.maxDepth ?? 2000;
+    // Merge options: passed options > stored renderOptions > defaults
+    const layerCount = options?.layerCount ?? this.renderOptions.layerCount ?? 5;
+    const showGrid = options?.showGrid ?? this.renderOptions.showGrid ?? true;
+    const foregroundAlpha = options?.foregroundAlpha ?? this.renderOptions.foregroundAlpha ?? 0.6;
+    const zIndexStep = options?.zIndexStep ?? this.renderOptions.zIndexStep ?? 30;
+    const parallaxRange = options?.parallaxRange ?? this.renderOptions.parallaxRange ?? 0.7;
+    const maxDepth = options?.maxDepth ?? this.renderOptions.maxDepth ?? 2000;
 
     const ctx = this.renderer.ctx as CanvasRenderingContext2D;
     const camera = this.renderer.camera;

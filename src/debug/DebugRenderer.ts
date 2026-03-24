@@ -54,7 +54,7 @@ export interface DebugTextConfig {
   y: number;
   color?: string;
   font?: string;
-  enabled?: boolean;
+  enabled?: boolean | (() => boolean);
 }
 
 export interface DebugTileHighlightConfig {
@@ -62,7 +62,7 @@ export interface DebugTileHighlightConfig {
   color?: string;
   lineWidth?: number;
   alpha?: number;
-  enabled?: boolean;
+  enabled?: boolean | (() => boolean);
 }
 
 export interface DebugLineConfig {
@@ -71,7 +71,7 @@ export interface DebugLineConfig {
   color?: string;
   lineWidth?: number;
   dashed?: boolean;
-  enabled?: boolean;
+  enabled?: boolean | (() => boolean);
 }
 
 export interface DebugShapeConfig {
@@ -80,7 +80,7 @@ export interface DebugShapeConfig {
   lineWidth?: number;
   fill?: boolean;
   alpha?: number;
-  enabled?: boolean;
+  enabled?: boolean | (() => boolean);
 }
 
 export interface DebugEntityBoundsConfig {
@@ -88,7 +88,7 @@ export interface DebugEntityBoundsConfig {
   color?: string;
   lineWidth?: number;
   showHeight?: boolean;
-  enabled?: boolean;
+  enabled?: boolean | (() => boolean);
 }
 
 type DebugItem = 
@@ -176,21 +176,59 @@ export class DebugRenderer {
   }
 
   /**
+   * Calculate parallax factor for a given depth
+   */
+  private calculateParallaxFactor(
+    col: number,
+    row: number,
+    layerCount: number = 5,
+    maxDepth: number = 2000,
+    baseParallax: number = 0.3,
+    parallaxRange: number = 0.7
+  ): number {
+    const depth = col + row;
+    const layerIndex = Math.floor((depth / maxDepth) * layerCount);
+    const clampedLayer = Math.max(0, Math.min(layerCount - 1, layerIndex));
+    return baseParallax + (clampedLayer / (layerCount - 1)) * parallaxRange;
+  }
+
+  /**
    * Render all debug items
    */
   render(
     ctx: CanvasRenderingContext2D,
     gridSystem: GridSystem,
     camera: IsoCamera,
-    projection: Projection
+    projection: Projection,
+    options?: {
+      playerCol?: number;
+      playerRow?: number;
+      layerCount?: number;
+      maxDepth?: number;
+      parallaxRange?: number;
+      baseParallax?: number;
+    }
   ): void {
     if (!this.enabled) return;
+
+    const playerCol = options?.playerCol ?? 0;
+    const playerRow = options?.playerRow ?? 0;
+    const layerCount = options?.layerCount ?? 5;
+    const maxDepth = options?.maxDepth ?? 2000;
+    const parallaxRange = options?.parallaxRange ?? 0.7;
+    const baseParallax = options?.baseParallax ?? 0.3;
+
+    // Calculate player layer parallax for tile highlights
+    const playerParallax = this.calculateParallaxFactor(
+      playerCol, playerRow, layerCount, maxDepth, baseParallax, parallaxRange
+    );
 
     for (const [id, item] of this.items) {
       const config = item.config as any;
       
-      // Check if item is enabled
-      if (config.enabled === false) continue;
+      // Check if item is enabled (support both boolean and function)
+      const isEnabled = typeof config.enabled === 'function' ? config.enabled() : (config.enabled !== false);
+      if (!isEnabled) continue;
 
       try {
         switch (item.type) {
@@ -198,7 +236,7 @@ export class DebugRenderer {
             this.renderText(ctx, config as DebugTextConfig);
             break;
           case 'tile':
-            this.renderTileHighlight(ctx, config as DebugTileHighlightConfig, gridSystem, camera, projection);
+            this.renderTileHighlight(ctx, config as DebugTileHighlightConfig, gridSystem, camera, projection, playerParallax);
             break;
           case 'line':
             this.renderLine(ctx, config as DebugLineConfig, camera, projection);
@@ -232,7 +270,8 @@ export class DebugRenderer {
     config: DebugTileHighlightConfig,
     gridSystem: GridSystem,
     camera: IsoCamera,
-    projection: Projection
+    projection: Projection,
+    parallaxFactor: number = 1.0
   ): void {
     const tile = config.getTile();
     if (!tile) return;
@@ -241,14 +280,14 @@ export class DebugRenderer {
     const tileSize = gridSystem.getTileSize();
 
     const corners = [
-      camera.worldToScreen(worldPos.x, worldPos.z, 0, projection, 1.0),
-      camera.worldToScreen(worldPos.x + tileSize.width, worldPos.z, 0, projection, 1.0),
-      camera.worldToScreen(worldPos.x + tileSize.width, worldPos.z + tileSize.height, 0, projection, 1.0),
-      camera.worldToScreen(worldPos.x, worldPos.z + tileSize.height, 0, projection, 1.0)
+      camera.worldToScreen(worldPos.x, worldPos.z, 0, projection, parallaxFactor),
+      camera.worldToScreen(worldPos.x + tileSize.width, worldPos.z, 0, projection, parallaxFactor),
+      camera.worldToScreen(worldPos.x + tileSize.width, worldPos.z + tileSize.height, 0, projection, parallaxFactor),
+      camera.worldToScreen(worldPos.x, worldPos.z + tileSize.height, 0, projection, parallaxFactor)
     ];
 
     ctx.save();
-    ctx.globalAlpha = config.alpha ?? 0.3;
+    ctx.globalAlpha = config.alpha ?? 0.4;
     ctx.beginPath();
     ctx.moveTo(corners[0].sx, corners[0].sy);
     for (let i = 1; i < 4; i++) {
