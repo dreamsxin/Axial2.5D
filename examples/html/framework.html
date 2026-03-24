@@ -142,6 +142,22 @@ game.inputManager.init();
 // Setup event handlers
 setupEventHandlers();
 
+// Initialize camera to center on player
+function initCamera() {
+  const playerDepth = state.player.col + state.player.row;
+  const playerLayer = layerManager.getLayerForDepth(playerDepth);
+  const playerParallax = layerManager.calculateParallaxFactor(playerLayer);
+  const worldPos = gridToWorld(state.player.col, state.player.row, CONFIG.cellSize);
+  
+  // Instant snap to player initially (no smoothing)
+  game.renderer.camera.follow(worldPos.x, worldPos.y, 0, game.projection, {
+    smoothness: 0,  // Instant
+    parallaxFactor: playerParallax
+  });
+}
+
+initCamera();
+
 // Start game loop
 game.start();
 log('🎮 Axial2.5D Framework started!', 'success');
@@ -350,7 +366,7 @@ function updateCamera() {
     0,  // ground level
     game.projection,
     {
-      smoothness: 0.9,  // Higher = smoother/slower
+      smoothness: 0.1,  // Lower = tighter follow (0.1 = move 10% toward target each frame)
       parallaxFactor: playerParallax
     }
   );

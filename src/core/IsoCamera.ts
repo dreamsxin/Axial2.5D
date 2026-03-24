@@ -228,10 +228,11 @@ export class IsoCamera {
     };
 
     // Apply smooth or instant movement
-    if (smoothness > 0 && smoothness < 1) {
-      // Smooth interpolation
-      this.offsetX += (parallaxAdjustedX - this.offsetX) * (1 - smoothness);
-      this.offsetY += (parallaxAdjustedY - this.offsetY) * (1 - smoothness);
+    if (smoothness > 0) {
+      // Smooth interpolation (lerp toward target)
+      // smoothness 0.9 means: move 90% of the way to target each frame
+      this.offsetX = this.offsetX + (parallaxAdjustedX - this.offsetX) * smoothness;
+      this.offsetY = this.offsetY + (parallaxAdjustedY - this.offsetY) * smoothness;
     } else {
       // Instant snap
       this.offsetX = parallaxAdjustedX;
