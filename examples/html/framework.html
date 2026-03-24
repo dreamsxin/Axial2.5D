@@ -517,72 +517,7 @@ window.updateLayerSettings = () => {
 
 // ==================== Debug Display ====================
 // NOTE: Debug rendering now handled by DebugRenderer (Phase 3)
-// drawDebug() completely removed - replaced with debugRenderer.render() in render hook.
-  
-  // Calculate player layer info once
-  const playerDepth = state.player.col + state.player.row;
-  const playerLayer = layerManager.getLayerForDepth(playerDepth);
-  const playerParallax = layerManager.calculateParallaxFactor(playerLayer);
-  
-  // Basic info
-  ctx.fillText(`FPS: ${state.fps}`, 10, y); y += lineH;
-  ctx.fillText(`Layers: ${CONFIG.layerCount}`, 10, y); y += lineH;
-  ctx.fillText(`Player: (${state.player.col}, ${state.player.row})`, 10, y); y += lineH;
-  ctx.fillText(`Camera: (${game.renderer.camera.offsetX.toFixed(0)}, ${game.renderer.camera.offsetY.toFixed(0)})`, 10, y); y += lineH;
-  y += 5;
-  
-  // Mouse info (only show if mouse has been tracked)
-  if (state.mouse.x !== undefined && state.mouse.y !== undefined) {
-    const mouseInfo = game.inputManager.getMouseGridPosition(state.player.col, state.player.row);
-    ctx.fillStyle = '#ff0';
-    ctx.fillText('=== Mouse ===', 10, y); y += lineH;
-    ctx.fillStyle = '#0f0';
-    ctx.fillText(`Screen: (${state.mouse.x.toFixed(0)}, ${state.mouse.y.toFixed(0)})`, 10, y); y += lineH;
-    
-    if (mouseInfo) {
-      // Calculate world position from mouse (use InputManager which handles rect automatically)
-      const world = game.inputManager.screenToWorld(state.mouse.x, state.mouse.y, mouseInfo.layer);
-      
-      if (world) {
-        ctx.fillText(`World: (${world.x.toFixed(1)}, ${world.y.toFixed(1)})`, 10, y); y += lineH;
-        ctx.fillText(`Grid: (${mouseInfo.col}, ${mouseInfo.row})`, 10, y); y += lineH;
-        
-        const mouseLayerInfo = layerManager.getLayerStats(mouseInfo.layer);
-        ctx.fillText(`Layer: ${mouseInfo.layer} (α:${(mouseLayerInfo.alpha*100).toFixed(0)}% Z:${mouseLayerInfo.zIndexOffset}px)`, 10, y); y += lineH;
-      }
-    }
-  }
-  
-  const playerLayerInfo = layerManager.getLayerStats(playerLayer);
-  ctx.fillText(`Player Layer: ${playerLayer} (parallax: ${(playerLayerInfo.parallax*100).toFixed(0)}%)`, 10, y); y += lineH;
-  ctx.fillText(`Parallax Range: ${state.layerSettings.parallaxRange}`, 10, y); y += lineH;
-  
-  // Building info
-  y += 5;
-  ctx.fillStyle = '#ff0';
-  ctx.fillText('=== Entities ===', 10, y); y += lineH;
-  ctx.fillStyle = '#0f0';
-  
-  const entities = game.entityManager.getAllEntities();
-  for (const entity of entities) {
-    const isBuilding = entity.height >= 50;
-    const prefix = isBuilding ? '🏢' : '👤';
-    
-    // Get occlusion info for this tile
-    const key = `${entity.col},${entity.row}`;
-    let occlusionInfo = '';
-    
-    if (!isBuilding) {
-      // For characters, show occluding buildings
-      occlusionInfo = ` (occluded by: ${key})`;
-    }
-    
-    ctx.fillText(`${prefix} ${entity.id}: (${entity.col},${entity.row}) h=${entity.height}${occlusionInfo}`, 10, y); y += lineH;
-  }
-  
-  // NOTE: Mouse tile highlight now handled by DebugRenderer
-  // Legacy code removed - use debugRenderer.addTileHighlight('mouse', {...}) instead
-}
+// See initialization code for debugRenderer.addText() and debugRenderer.addTileHighlight()
 
 function updateLayerList() {
   const layerList = document.getElementById('layerList');
