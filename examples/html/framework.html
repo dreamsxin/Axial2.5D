@@ -409,6 +409,9 @@ game.render = function() {
   // Update effects
   effectSystem.update(16);
   
+  // Clear canvas first (prevents ghosting/trails)
+  game.renderer.clear('#1a1a2e');
+  
   // Use framework's built-in layer rendering (includes grid, tiles, entities)
   game.renderDefault({
     layerCount: CONFIG.layerCount,
