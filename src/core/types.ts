@@ -80,7 +80,6 @@ export abstract class Entity implements RenderItem {
   public frame: number = 0;
   public depth: number = 0;
   public visible: boolean = true;
-  public occlusionAlpha: number = 1.0; // Occlusion transparency (1.0 = fully visible, <1.0 = partially occluded)
 
   constructor(id: string, col: number, row: number, height: number = 0, spriteKey: string = '') {
     this.id = id;

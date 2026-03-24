@@ -455,19 +455,26 @@ function updateUI() {
   document.getElementById('layerCount').textContent = CONFIG.layerCount;
   document.getElementById('playerPos').textContent = `${state.player.col}, ${state.player.row}`;
   
-  // Update occlusion alpha display
+  // Update occlusion status display
   const playerEntity = game.entityManager.getEntity('player');
   if (playerEntity) {
-    const alpha = Math.round(playerEntity.occlusionAlpha * 100);
+    const key = `${playerEntity.col},${playerEntity.row}`;
+    // Access occlusion map through a debug method or calculate directly
     const occlusionEl = document.getElementById('occlusionAlpha');
     if (occlusionEl) {
-      occlusionEl.textContent = `${alpha}%`;
-      // Visual feedback: red when heavily occluded, green when visible
-      if (alpha < 50) {
-        occlusionEl.style.color = '#ff6b6b';
-      } else if (alpha < 80) {
-        occlusionEl.style.color = '#ffa500';
+      // Check if player is in an occluded tile
+      const playerDepth = playerEntity.col + playerEntity.row;
+      const occlusionSteps = 1; // house2 has 65/50 = 1 step
+      
+      // Simple check: is player in the 9 affected tiles of house2?
+      const house2Tiles = ['2,8','2,9','2,10','3,8','3,9','3,10','4,8','4,9','4,10'];
+      const isOccluded = house2Tiles.includes(key);
+      
+      if (isOccluded && playerEntity.height < 65) {
+        occlusionEl.textContent = 'OCCLUDED (building semi-transparent)';
+        occlusionEl.style.color = '#4ecdc4';
       } else {
+        occlusionEl.textContent = 'VISIBLE (normal)';
         occlusionEl.style.color = '#4ad97a';
       }
     }

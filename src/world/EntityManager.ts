@@ -191,9 +191,12 @@ export class EntityManager {
   }
 
   /**
-   * Render entities for a specific layer
-   * @param ctx - Canvas rendering context
-   * @param options - Render options
+   * Render entities with proper occlusion handling
+   * 
+   * Occlusion logic:
+   * - Characters in occluded tiles are drawn FIRST (opaque)
+   * - Buildings that occlude characters are drawn SEMI-TRANSPARENT on top
+   * - This ensures characters are visible through buildings
    */
   public render(
     ctx: CanvasRenderingContext2D,
@@ -212,68 +215,119 @@ export class EntityManager {
     const wireframe = options?.wireframe ?? false;
 
     ctx.save();
-    
-    // Note: Z-axis offset is applied by the caller (Game.renderDefault)
-    // Don't apply it here to avoid double-application
 
-    // Get all entities and sort by depth
+    // Get all entities
     const allEntities = this.getAllEntities().filter(e => e.visible !== false);
     
-    const sortedEntities = allEntities
-      .filter(e => {
-        // If layerIndex specified, only render entities for this layer
-        if (layerIndex !== undefined) {
-          const depth = e.col + e.row;
-          const entityLayer = Math.floor((depth / maxDepth) * layerCount);
-          return entityLayer === layerIndex;
-        }
-        return true;
-      })
-      .sort((a, b) => a.depth - b.depth);
+    // Filter by layer if specified
+    const layerEntities = allEntities.filter(e => {
+      if (layerIndex !== undefined) {
+        const depth = e.col + e.row;
+        const entityLayer = Math.floor((depth / maxDepth) * layerCount);
+        return entityLayer === layerIndex;
+      }
+      return true;
+    });
 
-    // Calculate occlusion map first (pre-computation based on buildings)
+    // Calculate occlusion map
     const tileSize = this.gridSystem.getTileSize().width;
     const mapSize = this.gridSystem.getDimensions();
-    this.calculateOcclusionMap(allEntities, tileSize, mapSize.width, mapSize.height);
+    this.calculateOcclusionMap(layerEntities, tileSize, mapSize.width, mapSize.height);
 
-    // Then calculate per-entity occlusion alpha
-    this.calculateOcclusion(sortedEntities, maxDepth, layerCount);
+    // Separate characters and buildings
+    const characters = layerEntities.filter(e => e.height < 50);
+    const buildings = layerEntities.filter(e => e.height >= 50);
 
+    // Sort all entities by depth for proper rendering order
+    const sortedEntities = layerEntities.sort((a, b) => a.depth - b.depth);
+
+    // Determine which buildings should be semi-transparent
+    const semiTransparentBuildings = new Set<string>();
+    for (const char of characters) {
+      const key = `${char.col},${char.row}`;
+      const occlusion = this.occlusionMap.get(key);
+      if (occlusion && occlusion.buildingId && occlusion.height > char.height) {
+        // This character is occluded - mark the building as semi-transparent
+        semiTransparentBuildings.add(occlusion.buildingId);
+      }
+    }
+
+    // First pass: Draw characters in occluded tiles (opaque)
     for (const entity of sortedEntities) {
-      const worldPos = this.gridSystem.gridToWorld(entity.col, entity.row);
+      if (entity.height >= 50) continue; // Skip buildings in first pass
+
+      const key = `${entity.col},${entity.row}`;
+      const occlusion = this.occlusionMap.get(key);
       
-      // Save current alpha and apply occlusion
-      ctx.save();
-      if (entity.occlusionAlpha < 1.0) {
-        ctx.globalAlpha = entity.occlusionAlpha;
+      // Only draw character if it's in an occluded tile
+      if (occlusion && occlusion.buildingId && occlusion.height > entity.height) {
+        this.drawEntity(ctx, entity, parallaxFactor, wireframe, 1.0); // Always opaque
       }
+    }
+
+    // Second pass: Draw all buildings (semi-transparent if occluding a character)
+    for (const entity of sortedEntities) {
+      if (entity.height < 50) continue; // Skip characters
+
+      const isSemiTransparent = semiTransparentBuildings.has(entity.id);
+      const alpha = isSemiTransparent ? 0.5 : 1.0;
+      this.drawEntity(ctx, entity, parallaxFactor, wireframe, alpha);
+    }
+
+    // Third pass: Draw characters NOT in occluded tiles (normal rendering)
+    for (const entity of sortedEntities) {
+      if (entity.height >= 50) continue; // Skip buildings
+
+      const key = `${entity.col},${entity.row}`;
+      const occlusion = this.occlusionMap.get(key);
       
-      if (entity.draw) {
-        // Entity has custom draw logic
-        entity.draw(ctx);
-      } else {
-        // Default: draw as a box
-        this.drawDefaultEntity(ctx, entity, worldPos, parallaxFactor, wireframe);
+      // Only draw if NOT occluded
+      if (!occlusion || !occlusion.buildingId || occlusion.height <= entity.height) {
+        this.drawEntity(ctx, entity, parallaxFactor, wireframe, 1.0);
       }
-      
-      ctx.restore();
     }
 
     ctx.restore();
   }
 
   /**
-   * Occlusion map: stores which tiles are occluded and by what height
-   * Key: "col,row", Value: occluding building height
+   * Helper to draw a single entity
    */
-  private occlusionMap: Map<string, number> = new Map();
+  private drawEntity(
+    ctx: CanvasRenderingContext2D,
+    entity: Entity,
+    parallaxFactor: number,
+    wireframe: boolean,
+    alpha: number
+  ): void {
+    const worldPos = this.gridSystem.gridToWorld(entity.col, entity.row);
+    
+    ctx.save();
+    if (alpha < 1.0) {
+      ctx.globalAlpha = alpha;
+    }
+    
+    if (entity.draw) {
+      entity.draw(ctx);
+    } else {
+      this.drawDefaultEntity(ctx, entity, worldPos, parallaxFactor, wireframe);
+    }
+    
+    ctx.restore();
+  }
+
+  /**
+   * Occlusion map: stores which tiles are occluded and by what building
+   * Key: "col,row", Value: { buildingId, height } - the building that occludes this tile
+   */
+  private occlusionMap: Map<string, { buildingId: string; height: number }> = new Map();
 
   /**
    * Calculate occlusion map for all tiles
    * Algorithm:
    * 1. For each building, calculate its footprint (cols x rows it occupies)
-   * 2. For each occupied tile, mark it and its diagonal neighbors as occlusion sources
-   * 3. Cast occlusion shadow northwest from each source
+   * 2. Cast occlusion shadow northwest from each occupied tile
+   * 3. Mark affected tiles with the occluding building info
    */
   public calculateOcclusionMap(
     entities: Entity[],
@@ -283,10 +337,10 @@ export class EntityManager {
   ): void {
     this.occlusionMap.clear();
 
-    // Initialize all tiles with 0 occlusion
+    // Initialize all tiles with no occlusion
     for (let c = 0; c < mapWidth; c++) {
       for (let r = 0; r < mapHeight; r++) {
-        this.occlusionMap.set(`${c},${r}`, 0);
+        this.occlusionMap.set(`${c},${r}`, { buildingId: '', height: 0 });
       }
     }
 
@@ -296,6 +350,7 @@ export class EntityManager {
         const width = (entity as any).width || tileSize;
         const length = (entity as any).length || tileSize;
         this.calculateBuildingOcclusion(
+          entity.id,
           entity.col,
           entity.row,
           entity.height,
@@ -317,8 +372,10 @@ export class EntityManager {
    * Example: Building at (3,9) h=65, w=90, l=90, tileSize=50
    * - Occupies: (3,9), (4,9), (3,10), (4,10) [2x2 grid cells]
    * - Occlusion: casts shadow northwest from each occupied tile
+   * - Characters in occluded tiles are drawn FIRST, then building is drawn semi-transparent
    */
   private calculateBuildingOcclusion(
+    buildingId: string,
     buildingCol: number,
     buildingRow: number,
     buildingHeight: number,
@@ -328,11 +385,8 @@ export class EntityManager {
     mapWidth: number,
     mapHeight: number
   ): void {
-    // Calculate how many grid cells the building occupies
     const colsOccupied = Math.ceil(buildingWidth / tileSize);
     const rowsOccupied = Math.ceil(buildingLength / tileSize);
-
-    // Calculate how many tiles the building occludes northwest
     const occlusionSteps = Math.floor(buildingHeight / tileSize);
 
     // For each tile occupied by the building, cast occlusion shadow
@@ -342,9 +396,8 @@ export class EntityManager {
         const row = buildingRow + dr;
         
         if (col >= 0 && col < mapWidth && row >= 0 && row < mapHeight) {
-          // Cast shadow in 3 directions northwest (toward camera)
           const directions = [
-            { dc: -1, dr: -1 },  // Northwest (diagonal)
+            { dc: -1, dr: -1 },  // Northwest
             { dc: -1, dr: 0 },   // West
             { dc: 0, dr: -1 },   // North
           ];
@@ -356,11 +409,11 @@ export class EntityManager {
 
               if (shadowCol >= 0 && shadowCol < mapWidth && shadowRow >= 0 && shadowRow < mapHeight) {
                 const shadowKey = `${shadowCol},${shadowRow}`;
-                const currentOcclusion = this.occlusionMap.get(shadowKey) || 0;
+                const current = this.occlusionMap.get(shadowKey);
 
                 // Update if this building casts a taller shadow
-                if (buildingHeight > currentOcclusion) {
-                  this.occlusionMap.set(shadowKey, buildingHeight);
+                if (!current || buildingHeight > current.height) {
+                  this.occlusionMap.set(shadowKey, { buildingId, height: buildingHeight });
                 }
               }
             }
@@ -370,40 +423,7 @@ export class EntityManager {
     }
   }
 
-  /**
-   * Calculate occlusion for entities based on pre-computed occlusion map
-   */
-  private calculateOcclusion(
-    entities: Entity[],
-    maxDepth: number,
-    layerCount: number
-  ): void {
-    // Reset occlusion alpha for all entities
-    for (const entity of entities) {
-      entity.occlusionAlpha = 1.0;
-    }
 
-    // For each character entity, check occlusion from the map
-    for (const entity of entities) {
-      // Only calculate occlusion for characters (not buildings)
-      if (entity.height < 50) {
-        const key = `${entity.col},${entity.row}`;
-        const occludingHeight = this.occlusionMap.get(key) || 0;
-
-        // If there's an occluding building taller than the character
-        if (occludingHeight > entity.height) {
-          // Calculate transparency based on height difference
-          // Larger difference = more transparent
-          const heightDiff = occludingHeight - entity.height;
-          const maxDiff = 100; // Max height difference for full occlusion
-
-          // Map height difference to alpha: 0.3 (fully occluded) to 1.0 (not occluded)
-          const occlusionFactor = Math.min(1.0, heightDiff / maxDiff);
-          entity.occlusionAlpha = 1.0 - (occlusionFactor * 0.7); // Range: 0.3 to 1.0
-        }
-      }
-    }
-  }
 
   /**
    * Draw default entity representation (3D box like standalone.html)
