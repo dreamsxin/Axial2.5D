@@ -320,12 +320,12 @@ function movePlayer(col, row) {
 window.toggleGrid = () => {
   state.showGrid = !state.showGrid;
   document.getElementById('btnGrid').classList.toggle('active', state.showGrid);
+  log(`Grid ${state.showGrid ? 'enabled' : 'disabled'}`, 'info');
 };
 
 window.toggleDebug = () => {
   state.showDebug = !state.showDebug;
   document.getElementById('btnDebug').classList.toggle('active', state.showDebug);
-  game.debugSystem.enabled = state.showDebug;
 };
 
 window.resetCamera = () => {
@@ -335,19 +335,31 @@ window.resetCamera = () => {
 };
 
 window.updateLayerSettings = () => {
-  const fgAlpha = parseFloat(document.getElementById('fgAlphaVal').parentElement.querySelector('input').value);
-  const zIndexStep = parseInt(document.getElementById('zStepVal').parentElement.querySelector('input').value);
-  const parallaxRange = parseFloat(document.getElementById('parallaxRangeVal').parentElement.querySelector('input').value);
+  const fgAlphaInput = document.getElementById('fgAlphaVal').parentElement.querySelector('input');
+  const zStepInput = document.getElementById('zStepVal').parentElement.querySelector('input');
+  const parallaxInput = document.getElementById('parallaxRangeVal').parentElement.querySelector('input');
+  
+  const fgAlpha = parseFloat(fgAlphaInput.value);
+  const zIndexStep = parseInt(zStepInput.value);
+  const parallaxRange = parseFloat(parallaxInput.value);
   
   document.getElementById('fgAlphaVal').textContent = fgAlpha;
   document.getElementById('zStepVal').textContent = zIndexStep;
   document.getElementById('parallaxRangeVal').textContent = parallaxRange;
   
+  // Update state
+  state.layerSettings.foregroundAlpha = fgAlpha;
+  state.layerSettings.zIndexStep = zIndexStep;
+  state.layerSettings.parallaxRange = parallaxRange;
+  
+  // Update layer manager
   layerManager.updateLayerProperties({
     foregroundAlpha: fgAlpha,
     zIndexStep,
     parallaxRange
   });
+  
+  log(`Layer settings updated: α=${fgAlpha}, Z=${zIndexStep}px, parallax=${parallaxRange}`, 'info');
 };
 
 // ==================== Update & Render ====================
@@ -395,6 +407,9 @@ game.render = function() {
     });
   }
   
+  // Draw debug info
+  drawDebug();
+  
   // Update UI
   updateUI();
 };
@@ -404,6 +419,74 @@ function updateUI() {
   document.getElementById('layerCount').textContent = CONFIG.layerCount;
   document.getElementById('playerPos').textContent = `${state.player.col}, ${state.player.row}`;
   updateLayerList();
+}
+
+// ==================== Debug Display ====================
+function drawDebug() {
+  if (!state.showDebug) return;
+  
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#0f0';
+  ctx.font = '12px monospace';
+  let y = 20, lineH = 16;
+  
+  // Basic info
+  ctx.fillText(`FPS: ${state.fps}`, 10, y); y += lineH;
+  ctx.fillText(`Layers: ${CONFIG.layerCount}`, 10, y); y += lineH;
+  ctx.fillText(`Player: (${state.player.col}, ${state.player.row})`, 10, y); y += lineH;
+  ctx.fillText(`Camera: (${game.renderer.camera.offsetX.toFixed(0)}, ${game.renderer.camera.offsetY.toFixed(0)})`, 10, y); y += lineH;
+  y += 5;
+  
+  // Mouse info
+  const mouseInfo = game.inputManager.getMouseGridPosition(state.player.col, state.player.row);
+  ctx.fillStyle = '#ff0';
+  ctx.fillText('=== Mouse ===', 10, y); y += lineH;
+  ctx.fillStyle = '#0f0';
+  ctx.fillText(`Screen: (${state.mouse.x.toFixed(0)}, ${state.mouse.y.toFixed(0)})`, 10, y); y += lineH;
+  
+  // Calculate world position from mouse (use InputManager which handles rect automatically)
+  const world = game.inputManager.screenToWorld(state.mouse.x, state.mouse.y, mouseInfo.layer);
+  
+  ctx.fillText(`World: (${world.x.toFixed(1)}, ${world.y.toFixed(1)})`, 10, y); y += lineH;
+  ctx.fillText(`Grid: (${mouseInfo.col}, ${mouseInfo.row})`, 10, y); y += lineH;
+  
+  const mouseLayerInfo = layerManager.getLayerStats(mouseInfo.layer);
+  ctx.fillText(`Layer: ${mouseInfo.layer} (α:${(mouseLayerInfo.alpha*100).toFixed(0)}% Z:${mouseLayerInfo.zIndexOffset}px)`, 10, y); y += lineH;
+  
+  const playerLayerInfo = layerManager.getLayerStats(playerLayer);
+  ctx.fillText(`Player Layer: ${playerLayer} (parallax: ${(playerLayerInfo.parallax*100).toFixed(0)}%)`, 10, y); y += lineH;
+  ctx.fillText(`Parallax Range: ${state.layerSettings.parallaxRange}`, 10, y); y += lineH;
+  
+  // Highlight mouse tile
+  const { col, row } = mouseInfo;
+  if (col >= 0 && col < CONFIG.mapSize && row >= 0 && row < CONFIG.mapSize) {
+    const playerZOffset = playerLayerInfo.zIndexOffset;
+    const worldPos = gridToWorld(col, row, CONFIG.cellSize);
+    
+    const corners = [
+      game.renderer.camera.worldToScreen(worldPos.x, worldPos.y, 0, game.projection, playerParallax),
+      game.renderer.camera.worldToScreen(worldPos.x + CONFIG.cellSize, worldPos.y, 0, game.projection, playerParallax),
+      game.renderer.camera.worldToScreen(worldPos.x + CONFIG.cellSize, worldPos.y + CONFIG.cellSize, 0, game.projection, playerParallax),
+      game.renderer.camera.worldToScreen(worldPos.x, worldPos.y + CONFIG.cellSize, 0, game.projection, playerParallax)
+    ];
+    
+    ctx.save();
+    if (playerZOffset !== 0) {
+      ctx.translate(0, playerZOffset);
+    }
+    
+    ctx.beginPath();
+    ctx.moveTo(corners[0].sx, corners[0].sy);
+    for (let i = 1; i < 4; i++) {
+      ctx.lineTo(corners[i].sx, corners[i].sy);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = '#ffff00';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    ctx.restore();
+  }
 }
 
 function updateLayerList() {

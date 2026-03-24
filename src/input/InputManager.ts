@@ -94,11 +94,14 @@ export class InputManager {
 
   /**
    * Convert screen coordinates to world coordinates
+   * @param screenX - Screen X coordinate (relative to canvas, 0 to canvas.width)
+   * @param screenY - Screen Y coordinate (relative to canvas, 0 to canvas.height)
+   * @param parallaxFactor - Parallax factor for coordinate conversion
    */
   public screenToWorld(screenX: number, screenY: number, parallaxFactor: number = 1.0): { x: number; y: number } {
-    const rect = this.canvas.getBoundingClientRect();
-    const adjX = (screenX - rect.left - this.canvas.width / 2 - this.camera.offsetX * parallaxFactor) / this.camera.scale;
-    const adjY = (screenY - rect.top - this.canvas.height / 2 - this.camera.offsetY * parallaxFactor) / this.camera.scale;
+    // screenX/screenY are already relative to canvas (from mouse event clientX - rect.left)
+    const adjX = (screenX - this.canvas.width / 2 - this.camera.offsetX * parallaxFactor) / this.camera.scale;
+    const adjY = (screenY - this.canvas.height / 2 - this.camera.offsetY * parallaxFactor) / this.camera.scale;
     
     const COS_THETA = Math.cos(30 * Math.PI / 180);
     const SIN_THETA = Math.sin(30 * Math.PI / 180);
@@ -184,13 +187,15 @@ export class InputManager {
 
   private onClick(e: MouseEvent): void {
     const rect = this.canvas.getBoundingClientRect();
+    const screenX = e.clientX - rect.left;
+    const screenY = e.clientY - rect.top;
     const playerParallax = this.getPlayerLayerParallax(0, 0); // Default player position
-    const world = this.screenToWorld(e.clientX - rect.left, e.clientY - rect.top, playerParallax);
+    const world = this.screenToWorld(screenX, screenY, playerParallax);
     const grid = this.worldToGrid(world.x, world.y);
     
     this.eventBus.emit('click', {
-      screenX: e.clientX - rect.left,
-      screenY: e.clientY - rect.top,
+      screenX,
+      screenY,
       worldX: world.x,
       worldY: world.y,
       gridCol: grid.col,
