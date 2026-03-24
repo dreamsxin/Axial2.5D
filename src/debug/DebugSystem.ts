@@ -231,9 +231,9 @@ export class DebugSystem {
   private drawMouseInfo(ctx: CanvasRenderingContext2D): void {
     if (!this.inputManager || !this.gridSystem) return;
 
-    const mouseState = this.inputManager.getMouseState();
-    const worldPos = this.inputManager.getWorldPositionFromScreen(mouseState.x, mouseState.y);
-    const gridPos = this.gridSystem.worldToGrid(worldPos.x, worldPos.z);
+    const mouseState = this.inputManager.mouseState;
+    const worldPos = this.inputManager.screenToWorld(mouseState.screenX, mouseState.screenY);
+    const gridPos = this.gridSystem.worldToGrid(worldPos.x, worldPos.y);
     
     const tile = this.gridSystem.getTile(gridPos.col, gridPos.row);
 
@@ -242,8 +242,8 @@ export class DebugSystem {
     ctx.textAlign = 'left';
     
     const info = [
-      `Mouse: (${mouseState.x}, ${mouseState.y})`,
-      `World: (${worldPos.x.toFixed(1)}, ${worldPos.z.toFixed(1)})`,
+      `Mouse: (${mouseState.screenX}, ${mouseState.screenY})`,
+      `World: (${worldPos.x.toFixed(1)}, ${worldPos.y.toFixed(1)})`,
       `Grid: (${gridPos.col}, ${gridPos.row})`,
       `Tile: ${tile?.type || 'none'} (${tile?.walkable ? 'walkable' : 'blocked'})`
     ];

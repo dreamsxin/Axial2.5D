@@ -74,7 +74,13 @@ entityManager.addEntity(new BasicEntity('npc2', 7, 7, '#d94a4a', 20, 35));
 entityManager.addEntity(new BasicEntity('building', 2, 7, '#888888', 40, 60));
 
 // Create input manager (will work in mock mode)
-const inputManager = new InputManager(renderer.canvas, camera, projection, eventBus);
+const inputManager = new InputManager({
+  canvas: renderer.canvas as HTMLCanvasElement,
+  camera,
+  projection,
+  eventBus,
+  cellSize: 50
+});
 
 // Create UI manager
 const uiManager = new UIManager(eventBus);

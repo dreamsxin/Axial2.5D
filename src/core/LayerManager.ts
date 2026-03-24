@@ -1,22 +1,26 @@
 /**
- * LayerManager - Manages multiple render layers with parallax scrolling
- * Automatically assigns items to layers based on depth
+ * LayerManager - Manages layer configurations with parallax, alpha, and Z-offset
+ * Each layer represents a visual depth plane with its own properties
  */
 
-import { Layer, LayerConfig } from './Layer';
-import { Projection } from './Projection';
-import { IsoCamera } from './IsoCamera';
-import { RenderItem } from './types';
-
-export interface LayerManagerConfig {
-  autoSort?: boolean;
-  defaultParallaxSteps?: number;
-  maxDepth?: number;  // Maximum depth for layer calculations (default 2000)
+export interface LayerConfig {
+  index: number;
+  parallaxFactor?: number;    // 0-1, parallax scrolling intensity
+  alpha?: number;             // 0-1, layer transparency
+  zIndexOffset?: number;      // Screen-space Z offset in pixels
+  visible?: boolean;
 }
 
-/**
- * Layer information returned by getLayerInfo
- */
+export interface LayerManagerConfig {
+  layerCount?: number;
+  maxDepth?: number;
+  baseParallax?: number;      // Background layer parallax (default 0.3)
+  parallaxRange?: number;     // Parallax range coefficient (default 0.7)
+  foregroundAlpha?: number;   // Foreground layer alpha (default 0.6)
+  backgroundAlpha?: number;   // Background layer alpha (default 1.0)
+  zIndexStep?: number;        // Z offset step between layers (default 30)
+}
+
 export interface LayerInfo {
   index: number;
   parallaxFactor: number;
@@ -25,340 +29,141 @@ export interface LayerInfo {
 }
 
 export class LayerManager {
-  private layers: Layer[] = [];
-  private layerMap: Map<string, Layer> = new Map();
-  private camera: IsoCamera;
-  private projection: Projection;
-  private autoSort: boolean;
-  private defaultParallaxSteps: number;
+  private layerCount: number;
   private maxDepth: number;
+  private baseParallax: number;
+  private parallaxRange: number;
+  private foregroundAlpha: number;
+  private backgroundAlpha: number;
+  private zIndexStep: number;
+  
+  private layers: Map<number, LayerConfig> = new Map();
 
-  constructor(
-    camera: IsoCamera,
-    projection: Projection,
-    config?: LayerManagerConfig
-  ) {
-    this.camera = camera;
-    this.projection = projection;
-    this.autoSort = config?.autoSort ?? true;
-    this.defaultParallaxSteps = config?.defaultParallaxSteps ?? 5;
+  constructor(config?: LayerManagerConfig) {
+    this.layerCount = config?.layerCount ?? 5;
     this.maxDepth = config?.maxDepth ?? 2000;
+    this.baseParallax = config?.baseParallax ?? 0.3;
+    this.parallaxRange = config?.parallaxRange ?? 0.7;
+    this.foregroundAlpha = config?.foregroundAlpha ?? 0.6;
+    this.backgroundAlpha = config?.backgroundAlpha ?? 1.0;
+    this.zIndexStep = config?.zIndexStep ?? 30;
+    
+    // Initialize default layers
+    this.initializeLayers();
   }
 
   /**
-   * Create standard layers based on depth ranges
-   * Automatically calculates parallax factors and alpha
+   * Initialize default layers with calculated properties
    */
-  public createStandardLayers(
-    depthMin: number,
-    depthMax: number,
-    layerCount: number = 5,
-    options?: {
-      foregroundAlpha?: number;  // Alpha for foreground layers (default 0.7)
-      backgroundAlpha?: number;  // Alpha for background layers (default 1.0)
-      zIndexStep?: number;       // Z-axis step between layers (default 50)
-    }
-  ): Layer[] {
-    this.clear();
-    
-    const range = depthMax - depthMin;
-    const step = range / layerCount;
-    const layers: Layer[] = [];
-    
-    const fgAlpha = options?.foregroundAlpha ?? 0.7;
-    const bgAlpha = options?.backgroundAlpha ?? 1.0;
-    const zStep = options?.zIndexStep ?? 50;
-
-    for (let i = 0; i < layerCount; i++) {
-      const layerMin = depthMin + i * step;
-      const layerMax = depthMin + (i + 1) * step;
-      
-      // Parallax factor: foreground (i=0) = 1.0, background (i=layerCount-1) = 0.3
-      const t = i / (layerCount - 1);
-      const parallaxFactor = 1.0 - t * 0.7;
-      
-      // Alpha: foreground = fgAlpha, background = bgAlpha
-      const alpha = fgAlpha + (bgAlpha - fgAlpha) * t;
-      
-      // Z-index offset: foreground = 0, background = higher values
-      const zIndexOffset = i * zStep;
-      
-      const layer = this.createLayer({
-        id: `layer_${i}`,
-        depthMin: layerMin,
-        depthMax: layerMax,
-        parallaxFactor,
-        zIndex: i,
-        zIndexOffset,
-        alpha
+  private initializeLayers(): void {
+    for (let i = 0; i < this.layerCount; i++) {
+      this.setLayer(i, {
+        index: i,
+        parallaxFactor: this.calculateParallaxFactor(i),
+        alpha: this.calculateLayerAlpha(i),
+        zIndexOffset: this.calculateZIndexOffset(i),
+        visible: true
       });
-      
-      layers.push(layer);
     }
-
-    return layers;
   }
 
   /**
-   * Create a custom layer
+   * Calculate parallax factor for a layer index
+   * Layer 0 (background) = baseParallax, Layer N-1 (foreground) = baseParallax + range
    */
-  public createLayer(config: LayerConfig): Layer {
-    const layer = new Layer(config, this.camera, this.projection);
-    this.layers.push(layer);
-    this.layerMap.set(config.id, layer);
-    
-    // Sort layers by depthMin (background first)
-    this.layers.sort((a, b) => a.depthMin - b.depthMin);
-    
-    return layer;
+  public calculateParallaxFactor(layerIndex: number): number {
+    if (this.layerCount <= 1) return 1.0;
+    return this.baseParallax + (layerIndex / (this.layerCount - 1)) * this.parallaxRange;
   }
 
   /**
-   * Get a layer by ID
+   * Calculate alpha for a layer index
+   * Layer 0 (background) = backgroundAlpha, Layer N-1 (foreground) = foregroundAlpha
    */
-  public getLayer(id: string): Layer | undefined {
-    return this.layerMap.get(id);
+  public calculateLayerAlpha(layerIndex: number): number {
+    if (this.layerCount <= 1) return 1.0;
+    const t = layerIndex / (this.layerCount - 1);
+    return this.backgroundAlpha - (this.backgroundAlpha - this.foregroundAlpha) * t;
+  }
+
+  /**
+   * Calculate Z-axis offset for a layer index
+   */
+  public calculateZIndexOffset(layerIndex: number): number {
+    return layerIndex * this.zIndexStep;
+  }
+
+  /**
+   * Get layer configuration
+   */
+  public getLayer(index: number): LayerConfig | undefined {
+    return this.layers.get(index);
+  }
+
+  /**
+   * Set or update layer configuration
+   */
+  public setLayer(index: number, config: Partial<LayerConfig>): void {
+    const existing = this.layers.get(index) || { index };
+    this.layers.set(index, { ...existing, ...config, index });
+  }
+
+  /**
+   * Get layer for a given depth value
+   */
+  public getLayerForDepth(depth: number): number {
+    const layerIndex = Math.floor((depth / this.maxDepth) * this.layerCount);
+    return Math.max(0, Math.min(this.layerCount - 1, layerIndex));
   }
 
   /**
    * Get all layers
    */
-  public getLayers(): Layer[] {
-    return this.layers;
+  public getAllLayers(): LayerConfig[] {
+    return Array.from(this.layers.values()).sort((a, b) => a.index - b.index);
   }
 
   /**
-   * Remove a layer
+   * Get layer count
    */
-  public removeLayer(id: string): void {
-    const layer = this.layerMap.get(id);
-    if (layer) {
-      const index = this.layers.indexOf(layer);
-      if (index > -1) {
-        this.layers.splice(index, 1);
-      }
-      this.layerMap.delete(id);
+  public getLayerCount(): number {
+    return this.layerCount;
+  }
+
+  /**
+   * Update layer properties dynamically
+   */
+  public updateLayerProperties(options: {
+    parallaxRange?: number;
+    foregroundAlpha?: number;
+    zIndexStep?: number;
+  }): void {
+    if (options.parallaxRange !== undefined) {
+      this.parallaxRange = options.parallaxRange;
     }
-  }
-
-  /**
-   * Clear all layers
-   */
-  public clear(): void {
-    this.layers = [];
-    this.layerMap.clear();
-  }
-
-  /**
-   * Add a render item to the appropriate layer based on its depth
-   */
-  public addItem(item: RenderItem): Layer | null {
-    const layer = this.getLayerForDepth(item.depth);
-    if (layer) {
-      layer.addItem(item);
-      return layer;
+    if (options.foregroundAlpha !== undefined) {
+      this.foregroundAlpha = options.foregroundAlpha;
     }
-    return null;
-  }
-
-  /**
-   * Add items to appropriate layers
-   */
-  public addItems(items: RenderItem[]): void {
-    for (const item of items) {
-      this.addItem(item);
-    }
-  }
-
-  /**
-   * Get the appropriate layer for a depth value
-   */
-  public getLayerForDepth(depth: number): Layer | null {
-    for (const layer of this.layers) {
-      if (layer.containsDepth(depth)) {
-        return layer;
-      }
+    if (options.zIndexStep !== undefined) {
+      this.zIndexStep = options.zIndexStep;
     }
     
-    // If no layer matches, return the closest one
-    if (this.layers.length > 0) {
-      if (depth < this.layers[0].depthMin) {
-        return this.layers[0]; // Foreground
-      }
-      return this.layers[this.layers.length - 1]; // Background
-    }
-    
-    return null;
+    // Recalculate all layer properties
+    this.initializeLayers();
   }
 
   /**
-   * Update all layers
+   * Get statistics for a layer
    */
-  public update(delta: number): void {
-    for (const layer of this.layers) {
-      layer.update(delta);
-    }
-  }
-
-  /**
-   * Render all layers with parallax scrolling
-   * Each layer is rendered with its own parallax offset
-   */
-  public render(ctx: CanvasRenderingContext2D): void {
-    // Sort layers by depth (background first, then foreground)
-    const sortedLayers = [...this.layers].sort((a, b) => a.depthMin - b.depthMin);
-    
-    for (const layer of sortedLayers) {
-      if (!layer.visible) continue;
-      
-      // Save context state
-      ctx.save();
-      
-      // Apply parallax offset for this layer
-      const parallax = layer.getParallaxOffset();
-      ctx.translate(parallax.x - this.camera.offsetX, parallax.y - this.camera.offsetY);
-      
-      // Draw layer contents
-      layer.draw(ctx);
-      
-      // Restore context state
-      ctx.restore();
-    }
-  }
-
-  /**
-   * Get layer statistics
-   */
-  public getStats(): { layerCount: number; totalItems: number; layers: Array<{ id: string; items: number }> } {
+  public getLayerStats(layerIndex: number): {
+    parallax: number;
+    alpha: number;
+    zIndexOffset: number;
+  } {
     return {
-      layerCount: this.layers.length,
-      totalItems: this.layers.reduce((sum, l) => sum + l.getCount(), 0),
-      layers: this.layers.map(l => ({
-        id: l.id,
-        items: l.getCount()
-      }))
-    };
-  }
-
-  /**
-   * Set layer visibility
-   */
-  public setLayerVisible(id: string, visible: boolean): void {
-    const layer = this.layerMap.get(id);
-    if (layer) {
-      layer.visible = visible;
-    }
-  }
-
-  /**
-   * Toggle layer visibility
-   */
-  public toggleLayerVisible(id: string): boolean {
-    const layer = this.layerMap.get(id);
-    if (layer) {
-      layer.visible = !layer.visible;
-      return layer.visible;
-    }
-    return false;
-  }
-
-  /**
-   * Recalculate layer assignments for all items
-   * Useful when items have moved
-   */
-  public reassignItems(): void {
-    if (!this.autoSort) return;
-    
-    // Collect all items
-    const allItems: RenderItem[] = [];
-    for (const layer of this.layers) {
-      allItems.push(...layer.getItems());
-    }
-    
-    // Clear all layers
-    for (const layer of this.layers) {
-      layer.clear();
-    }
-    
-    // Reassign items
-    for (const item of allItems) {
-      this.addItem(item);
-    }
-  }
-
-  /**
-   * Get layer index for a given depth value (utility function)
-   * @param depth - Depth value (typically based on entity position)
-   * @param layerCount - Total number of layers
-   * @param maxDepth - Maximum depth value (default from config)
-   * @returns Layer index (0 = background, layerCount-1 = foreground)
-   */
-  public getLayerIndexForDepth(depth: number, layerCount: number = 5, maxDepth: number = this.maxDepth): number {
-    const layerIndex = Math.floor((depth / maxDepth) * layerCount);
-    return Math.max(0, Math.min(layerCount - 1, layerIndex));
-  }
-
-  /**
-   * Get parallax factor for a layer index
-   * @param layerIndex - Layer index (0 = background, layerCount-1 = foreground)
-   * @param layerCount - Total number of layers
-   * @param parallaxRange - Parallax range coefficient (default 0.7)
-   * @returns Parallax factor (0.3 to 1.0 by default)
-   */
-  public getParallaxFactor(layerIndex: number, layerCount: number = 5, parallaxRange: number = 0.7): number {
-    // Formula: 0.3 + (layerIndex / (layerCount-1)) * parallaxRange
-    // Layer 0 (background) = 30%, Layer 4 (foreground) = 30% + range
-    return 0.3 + (layerIndex / (layerCount - 1)) * parallaxRange;
-  }
-
-  /**
-   * Get alpha for a layer index
-   * @param layerIndex - Layer index (0 = background, layerCount-1 = foreground)
-   * @param layerCount - Total number of layers
-   * @param foregroundAlpha - Alpha for foreground layers (default 0.6)
-   * @returns Alpha value (0-1)
-   */
-  public getLayerAlpha(layerIndex: number, layerCount: number = 5, foregroundAlpha: number = 0.6): number {
-    // Layer 0 (background) = 100%, Layer 4 (foreground) = foregroundAlpha
-    const t = layerIndex / (layerCount - 1);
-    return 1.0 - (1.0 - foregroundAlpha) * t;
-  }
-
-  /**
-   * Get Z-axis offset for a layer index
-   * @param layerIndex - Layer index (0 = base, higher = closer to camera)
-   * @param zIndexStep - Z-axis step between layers in pixels
-   * @returns Z-axis offset in pixels
-   */
-  public getZIndexOffset(layerIndex: number, zIndexStep: number = 30): number {
-    return layerIndex * zIndexStep;
-  }
-
-  /**
-   * Get complete layer information
-   * @param layerIndex - Layer index
-   * @param options - Layer options
-   * @returns Layer info with parallax, alpha, and Z-offset
-   */
-  public getLayerInfo(
-    layerIndex: number,
-    options?: {
-      layerCount?: number;
-      parallaxRange?: number;
-      foregroundAlpha?: number;
-      zIndexStep?: number;
-    }
-  ): LayerInfo {
-    const layerCount = options?.layerCount ?? 5;
-    const parallaxRange = options?.parallaxRange ?? 0.7;
-    const foregroundAlpha = options?.foregroundAlpha ?? 0.6;
-    const zIndexStep = options?.zIndexStep ?? 30;
-
-    return {
-      index: layerIndex,
-      parallaxFactor: this.getParallaxFactor(layerIndex, layerCount, parallaxRange),
-      alpha: this.getLayerAlpha(layerIndex, layerCount, foregroundAlpha),
-      zIndexOffset: this.getZIndexOffset(layerIndex, zIndexStep)
+      parallax: this.calculateParallaxFactor(layerIndex),
+      alpha: this.calculateLayerAlpha(layerIndex),
+      zIndexOffset: this.calculateZIndexOffset(layerIndex)
     };
   }
 }

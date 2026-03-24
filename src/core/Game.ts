@@ -95,12 +95,13 @@ export class Game {
     );
 
     // Create input manager
-    this.inputManager = new InputManager(
-      this.canvas,
-      this.renderer.camera,
-      this.projection,
-      this.eventBus
-    );
+    this.inputManager = new InputManager({
+      canvas: this.canvas as HTMLCanvasElement,
+      camera: this.renderer.camera,
+      projection: this.projection,
+      eventBus: this.eventBus,
+      cellSize: mapData.tileW
+    });
 
     // Initialize UI
     this.uiManager.setInputManager(this.inputManager);

@@ -10,7 +10,7 @@ export { IsoCamera } from './core/IsoCamera';
 export { CanvasRenderer } from './core/CanvasRenderer';
 export { Game } from './core/Game';
 export { Layer } from './core/Layer';
-export type { LayerConfig } from './core/Layer';
+export type { LayerConfig as LayerConfig2 } from './core/Layer';
 export { LayerManager } from './core/LayerManager';
 export type { LayerManagerConfig, LayerInfo } from './core/LayerManager';
 export * from './core/types';
@@ -28,6 +28,11 @@ export type { GridLinesConfig } from './world/GridLines';
 
 // Input
 export { InputManager } from './input/InputManager';
+export type { InputManagerConfig, MouseState } from './input/InputManager';
+
+// Effects
+export { EffectSystem } from './effects/EffectSystem';
+export type { EffectConfig, Effect } from './effects/EffectSystem';
 
 // UI
 export { UIManager } from './ui/UIManager';

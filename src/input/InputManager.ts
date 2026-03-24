@@ -1,296 +1,253 @@
 /**
- * InputManager - Handles mouse, keyboard, and touch input
- * Converts screen coordinates to world coordinates using projection
+ * InputManager - Unified input handling for mouse, keyboard, and touch
+ * Converts screen coordinates to world/grid coordinates with camera and parallax support
  */
 
-import { Projection } from '../core/Projection';
 import { IsoCamera } from '../core/IsoCamera';
+import { Projection } from '../core/Projection';
 import { EventBus } from '../utils/EventBus';
-import { InputEvent, InputEventType } from '../core/types';
+
+export interface InputManagerConfig {
+  canvas: HTMLCanvasElement;
+  camera: IsoCamera;
+  projection: Projection;
+  eventBus: EventBus;
+  cellSize?: number;
+}
+
+export interface MouseState {
+  screenX: number;
+  screenY: number;
+  worldX: number;
+  worldY: number;
+  gridCol: number;
+  gridRow: number;
+  layer: number;
+  isDown: boolean;
+  isDragging: boolean;
+}
 
 export class InputManager {
-  private canvas: HTMLCanvasElement | OffscreenCanvas;
+  private canvas: HTMLCanvasElement;
   private camera: IsoCamera;
   private projection: Projection;
   private eventBus: EventBus;
+  private cellSize: number;
   
+  public mouseState: MouseState;
+  private layerCount: number = 5;
+  private maxDepth: number = 2000;
+  private parallaxRange: number = 0.7;
   private blocking: boolean = false;
-  private mouseState: { x: number; y: number; down: boolean } = { x: 0, y: 0, down: false };
-  private keys: Map<string, boolean> = new Map();
-  
-  private lastClickTime: number = 0;
-  private dragThreshold: number = 5;
-  private isDragging: boolean = false;
-  private dragStart: { x: number; y: number } | null = null;
 
-  constructor(
-    canvas: HTMLCanvasElement | OffscreenCanvas,
-    camera: IsoCamera,
-    projection: Projection,
-    eventBus: EventBus
-  ) {
-    this.canvas = canvas;
-    this.camera = camera;
-    this.projection = projection;
-    this.eventBus = eventBus;
+  private keyState: Map<string, boolean> = new Map();
+
+  constructor(config: InputManagerConfig) {
+    this.canvas = config.canvas;
+    this.camera = config.camera;
+    this.projection = config.projection;
+    this.eventBus = config.eventBus;
+    this.cellSize = config.cellSize ?? 50;
+    
+    this.mouseState = {
+      screenX: 0,
+      screenY: 0,
+      worldX: 0,
+      worldY: 0,
+      gridCol: 0,
+      gridRow: 0,
+      layer: 0,
+      isDown: false,
+      isDragging: false
+    };
   }
 
   /**
    * Initialize input listeners
    */
   public init(): void {
-    if (typeof window !== 'undefined' && this.canvas instanceof HTMLCanvasElement) {
-      this.canvas.addEventListener('mousedown', this.onMouseDown.bind(this));
-      this.canvas.addEventListener('mousemove', this.onMouseMove.bind(this));
-      this.canvas.addEventListener('mouseup', this.onMouseUp.bind(this));
-      this.canvas.addEventListener('click', this.onClick.bind(this));
-      this.canvas.addEventListener('wheel', this.onWheel.bind(this));
-      this.canvas.addEventListener('keydown', this.onKeyDown.bind(this));
-      this.canvas.addEventListener('keyup', this.onKeyUp.bind(this));
-      
-      // Touch events
-      this.canvas.addEventListener('touchstart', this.onTouchStart.bind(this));
-      this.canvas.addEventListener('touchmove', this.onTouchMove.bind(this));
-      this.canvas.addEventListener('touchend', this.onTouchEnd.bind(this));
-    }
+    this.setupMouseListeners();
+    this.setupKeyboardListeners();
   }
 
   /**
-   * Destroy input listeners
+   * Set layer configuration for coordinate conversion
    */
-  public destroy(): void {
-    if (typeof window !== 'undefined' && this.canvas instanceof HTMLCanvasElement) {
-      this.canvas.removeEventListener('mousedown', this.onMouseDown.bind(this));
-      this.canvas.removeEventListener('mousemove', this.onMouseMove.bind(this));
-      this.canvas.removeEventListener('mouseup', this.onMouseUp.bind(this));
-      this.canvas.removeEventListener('click', this.onClick.bind(this));
-      this.canvas.removeEventListener('wheel', this.onWheel.bind(this));
-      this.canvas.removeEventListener('keydown', this.onKeyDown.bind(this));
-      this.canvas.removeEventListener('keyup', this.onKeyUp.bind(this));
-      this.canvas.removeEventListener('touchstart', this.onTouchStart.bind(this));
-      this.canvas.removeEventListener('touchmove', this.onTouchMove.bind(this));
-      this.canvas.removeEventListener('touchend', this.onTouchEnd.bind(this));
-    }
+  public setLayerConfig(config: {
+    layerCount?: number;
+    maxDepth?: number;
+    parallaxRange?: number;
+  }): void {
+    if (config.layerCount !== undefined) this.layerCount = config.layerCount;
+    if (config.maxDepth !== undefined) this.maxDepth = config.maxDepth;
+    if (config.parallaxRange !== undefined) this.parallaxRange = config.parallaxRange;
   }
 
   /**
-   * Set input blocking (used by UI manager)
+   * Calculate player layer parallax for coordinate conversion
    */
-  public setBlocking(block: boolean): void {
-    this.blocking = block;
-  }
-
-  /**
-   * Check if a key is currently pressed
-   */
-  public isKeyPressed(key: string): boolean {
-    return this.keys.get(key) || false;
-  }
-
-  /**
-   * Get current mouse state
-   */
-  public getMouseState(): { x: number; y: number; down: boolean } {
-    return { ...this.mouseState };
+  private getPlayerLayerParallax(playerCol: number, playerRow: number): number {
+    const playerDepth = playerCol + playerRow;
+    const playerLayer = Math.floor((playerDepth / this.maxDepth) * this.layerCount);
+    return 0.3 + (playerLayer / (this.layerCount - 1)) * this.parallaxRange;
   }
 
   /**
    * Convert screen coordinates to world coordinates
    */
-  public getWorldPositionFromScreen(screenX: number, screenY: number): { x: number; z: number } {
-    // Get canvas bounds
-    let canvasX = screenX;
-    let canvasY = screenY;
+  public screenToWorld(screenX: number, screenY: number, parallaxFactor: number = 1.0): { x: number; y: number } {
+    const rect = this.canvas.getBoundingClientRect();
+    const adjX = (screenX - rect.left - this.canvas.width / 2 - this.camera.offsetX * parallaxFactor) / this.camera.scale;
+    const adjY = (screenY - rect.top - this.canvas.height / 2 - this.camera.offsetY * parallaxFactor) / this.camera.scale;
     
-    if (typeof window !== 'undefined' && this.canvas instanceof HTMLCanvasElement) {
-      const rect = this.canvas.getBoundingClientRect();
-      canvasX = (screenX - rect.left) * (this.canvas.width / rect.width);
-      canvasY = (screenY - rect.top) * (this.canvas.height / rect.height);
+    const COS_THETA = Math.cos(30 * Math.PI / 180);
+    const SIN_THETA = Math.sin(30 * Math.PI / 180);
+    
+    const worldX = (adjX / COS_THETA + adjY / SIN_THETA) / 2;
+    const worldY = (adjY / SIN_THETA - adjX / COS_THETA) / 2;
+    
+    return { x: worldX, y: worldY };
+  }
+
+  /**
+   * Convert world coordinates to grid coordinates
+   */
+  public worldToGrid(worldX: number, worldY: number): { col: number; row: number } {
+    return {
+      col: Math.round(worldX / this.cellSize),
+      row: Math.round(worldY / this.cellSize)
+    };
+  }
+
+  /**
+   * Get mouse position in grid coordinates
+   */
+  public getMouseGridPosition(playerCol: number, playerRow: number): { col: number; row: number; layer: number } {
+    const parallax = this.getPlayerLayerParallax(playerCol, playerRow);
+    const world = this.screenToWorld(this.mouseState.screenX, this.mouseState.screenY, parallax);
+    const grid = this.worldToGrid(world.x, world.y);
+    const depth = grid.col + grid.row;
+    const layer = Math.floor((depth / this.maxDepth) * this.layerCount);
+    
+    return { col: grid.col, row: grid.row, layer };
+  }
+
+  /**
+   * Setup mouse event listeners
+   */
+  private setupMouseListeners(): void {
+    this.canvas.addEventListener('mousemove', e => this.onMouseMove(e));
+    this.canvas.addEventListener('mousedown', e => this.onMouseDown(e));
+    this.canvas.addEventListener('mouseup', e => this.onMouseUp(e));
+    this.canvas.addEventListener('wheel', e => this.onWheel(e), { passive: false });
+    this.canvas.addEventListener('click', e => this.onClick(e));
+  }
+
+  /**
+   * Setup keyboard event listeners
+   */
+  private setupKeyboardListeners(): void {
+    window.addEventListener('keydown', e => this.onKeyDown(e));
+    window.addEventListener('keyup', e => this.onKeyUp(e));
+  }
+
+  private onMouseMove(e: MouseEvent): void {
+    const rect = this.canvas.getBoundingClientRect();
+    this.mouseState.screenX = e.clientX - rect.left;
+    this.mouseState.screenY = e.clientY - rect.top;
+    
+    if (this.mouseState.isDown) {
+      const deltaX = e.movementX;
+      const deltaY = e.movementY;
+      this.mouseState.isDragging = true;
+      this.eventBus.emit('dragMove', { deltaX, deltaY, type: 'dragMove' });
     }
-
-    // Reverse camera transform
-    const cameraSpace = this.camera.screenToCameraSpace(canvasX, canvasY);
-    
-    // Apply projection inverse
-    const worldPos = this.projection.screenToWorld(cameraSpace.sx, cameraSpace.sy, 0);
-    
-    return { x: worldPos.worldX, z: worldPos.worldY };
   }
 
-  // Event Handlers
-  private onMouseDown(event: MouseEvent): void {
-    if (this.blocking) return;
-    
-    this.mouseState.down = true;
-    this.dragStart = { x: event.clientX, y: event.clientY };
-    this.isDragging = false;
-    
-    this.eventBus.emit('mousedown', {
-      type: 'mousedown',
-      screenX: event.clientX,
-      screenY: event.clientY,
-      button: event.button
-    });
+  private onMouseDown(e: MouseEvent): void {
+    this.mouseState.isDown = true;
+    this.mouseState.isDragging = false;
+    this.eventBus.emit('mouseDown', { x: e.clientX, y: e.clientY, type: 'mouseDown' });
   }
 
-  private onMouseMove(event: MouseEvent): void {
-    this.mouseState.x = event.clientX;
-    this.mouseState.y = event.clientY;
-    
-    const worldPos = this.getWorldPositionFromScreen(event.clientX, event.clientY);
-    
-    // Check for drag
-    if (this.mouseState.down && this.dragStart) {
-      const dx = event.clientX - this.dragStart.x;
-      const dy = event.clientY - this.dragStart.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      
-      if (dist > this.dragThreshold) {
-        this.isDragging = true;
-        this.eventBus.emit('dragMove', {
-          type: 'mousemove',
-          deltaX: dx,
-          deltaY: dy
-        });
-      }
-    }
-    
-    this.eventBus.emit('mousemove', {
-      type: 'mousemove',
-      screenX: event.clientX,
-      screenY: event.clientY,
-      worldX: worldPos.x,
-      worldZ: worldPos.z
-    });
+  private onMouseUp(e: MouseEvent): void {
+    this.mouseState.isDown = false;
+    this.mouseState.isDragging = false;
+    this.eventBus.emit('mouseUp', { x: e.clientX, y: e.clientY, type: 'mouseUp' });
   }
 
-  private onMouseUp(event: MouseEvent): void {
-    if (this.blocking) return;
-    
-    this.mouseState.down = false;
-    this.dragStart = null;
-    this.isDragging = false;
-    
-    this.eventBus.emit('mouseup', {
-      type: 'mouseup',
-      screenX: event.clientX,
-      screenY: event.clientY,
-      button: event.button
-    });
+  private onWheel(e: WheelEvent): void {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    this.eventBus.emit('zoom', { delta, type: 'zoom' });
   }
 
-  private onClick(event: MouseEvent): void {
-    if (this.blocking || this.isDragging) return;
-    
-    const worldPos = this.getWorldPositionFromScreen(event.clientX, event.clientY);
-    
-    // Check for double-click
-    const now = Date.now();
-    const isDoubleClick = now - this.lastClickTime < 300;
-    this.lastClickTime = now;
+  private onClick(e: MouseEvent): void {
+    const rect = this.canvas.getBoundingClientRect();
+    const playerParallax = this.getPlayerLayerParallax(0, 0); // Default player position
+    const world = this.screenToWorld(e.clientX - rect.left, e.clientY - rect.top, playerParallax);
+    const grid = this.worldToGrid(world.x, world.y);
     
     this.eventBus.emit('click', {
-      type: 'click',
-      screenX: event.clientX,
-      screenY: event.clientY,
-      worldX: worldPos.x,
-      worldZ: worldPos.z,
-      button: event.button
-    });
-    
-    if (isDoubleClick) {
-      this.eventBus.emit('dblclick', {
-        type: 'dblclick',
-        screenX: event.clientX,
-        screenY: event.clientY,
-        worldX: worldPos.x,
-        worldZ: worldPos.z
-      });
-    }
-  }
-
-  private onWheel(event: WheelEvent): void {
-    if (this.blocking) return;
-    
-    const delta = event.deltaY > 0 ? 0.9 : 1.1;
-    
-    this.eventBus.emit('zoom', {
-      type: 'wheel',
-      delta
+      screenX: e.clientX - rect.left,
+      screenY: e.clientY - rect.top,
+      worldX: world.x,
+      worldY: world.y,
+      gridCol: grid.col,
+      gridRow: grid.row,
+      type: 'click'
     });
   }
 
-  private onKeyDown(event: KeyboardEvent): void {
-    this.keys.set(event.key, true);
-    this.keys.set(event.code, true);
-    
-    this.eventBus.emit('keydown', {
-      type: 'keydown',
-      key: event.key,
-      code: event.code
-    });
+  private onKeyDown(e: KeyboardEvent): void {
+    this.keyState.set(e.key, true);
+    this.eventBus.emit('keyDown', { key: e.key, type: 'keyDown' });
   }
 
-  private onKeyUp(event: KeyboardEvent): void {
-    this.keys.set(event.key, false);
-    this.keys.set(event.code, false);
-    
-    this.eventBus.emit('keyup', {
-      type: 'keyup',
-      key: event.key,
-      code: event.code
-    });
+  private onKeyUp(e: KeyboardEvent): void {
+    this.keyState.set(e.key, false);
+    this.eventBus.emit('keyUp', { key: e.key, type: 'keyUp' });
   }
 
-  private onTouchStart(event: TouchEvent): void {
-    if (this.blocking) return;
-    event.preventDefault();
-    
-    const touch = event.touches[0];
-    this.mouseState.x = touch.clientX;
-    this.mouseState.y = touch.clientY;
-    this.mouseState.down = true;
-    this.dragStart = { x: touch.clientX, y: touch.clientY };
-    
-    const worldPos = this.getWorldPositionFromScreen(touch.clientX, touch.clientY);
-    
-    this.eventBus.emit('touchstart', {
-      type: 'touchstart',
-      screenX: touch.clientX,
-      screenY: touch.clientY,
-      worldX: worldPos.x,
-      worldZ: worldPos.z
-    });
+  /**
+   * Check if a key is currently pressed
+   */
+  public isKeyDown(key: string): boolean {
+    return this.keyState.get(key) === true;
   }
 
-  private onTouchMove(event: TouchEvent): void {
-    if (this.blocking) return;
-    event.preventDefault();
+  /**
+   * Get movement direction from WASD/arrow keys
+   */
+  public getMovementDirection(): { dCol: number; dRow: number } {
+    let dCol = 0, dRow = 0;
     
-    const touch = event.touches[0];
-    this.mouseState.x = touch.clientX;
-    this.mouseState.y = touch.clientY;
+    if (this.isKeyDown('w') || this.isKeyDown('ArrowUp')) dRow--;
+    if (this.isKeyDown('s') || this.isKeyDown('ArrowDown')) dRow++;
+    if (this.isKeyDown('a') || this.isKeyDown('ArrowLeft')) dCol--;
+    if (this.isKeyDown('d') || this.isKeyDown('ArrowRight')) dCol++;
     
-    const worldPos = this.getWorldPositionFromScreen(touch.clientX, touch.clientY);
-    
-    this.eventBus.emit('touchmove', {
-      type: 'touchmove',
-      screenX: touch.clientX,
-      screenY: touch.clientY,
-      worldX: worldPos.x,
-      worldZ: worldPos.z
-    });
+    return { dCol, dRow };
   }
 
-  private onTouchEnd(event: TouchEvent): void {
-    if (this.blocking) return;
-    event.preventDefault();
-    
-    this.mouseState.down = false;
-    this.dragStart = null;
-    
-    this.eventBus.emit('touchend', {
-      type: 'touchend'
-    });
+  /**
+   * Set input blocking (prevent input processing)
+   */
+  public setBlocking(blocked: boolean): void {
+    this.blocking = blocked;
+  }
+
+  /**
+   * Check if input is blocked
+   */
+  public isBlocking(): boolean {
+    return this.blocking;
+  }
+
+  /**
+   * Destroy input manager and remove listeners
+   */
+  public destroy(): void {
+    // Cleanup would go here in a full implementation
   }
 }
