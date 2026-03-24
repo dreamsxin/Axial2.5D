@@ -245,10 +245,14 @@ export class EntityManager {
     const semiTransparentBuildings = new Set<string>();
     for (const char of characters) {
       const key = `${char.col},${char.row}`;
-      const occlusion = this.occlusionMap.get(key);
-      if (occlusion && occlusion.buildingId && occlusion.height > char.height) {
-        // This character is occluded - mark the building as semi-transparent
-        semiTransparentBuildings.add(occlusion.buildingId);
+      const occlusions = this.occlusionMap.get(key) || [];
+      
+      // Check all buildings that occlude this character
+      for (const occ of occlusions) {
+        if (occ.height > char.height) {
+          // This building occludes the character - mark as semi-transparent
+          semiTransparentBuildings.add(occ.buildingId);
+        }
       }
     }
 
@@ -257,10 +261,12 @@ export class EntityManager {
       if (entity.height >= 50) continue; // Skip buildings in first pass
 
       const key = `${entity.col},${entity.row}`;
-      const occlusion = this.occlusionMap.get(key);
+      const occlusions = this.occlusionMap.get(key) || [];
       
-      // Only draw character if it's in an occluded tile
-      if (occlusion && occlusion.buildingId && occlusion.height > entity.height) {
+      // Check if character is occluded by any building
+      const isOccluded = occlusions.some(occ => occ.height > entity.height);
+      
+      if (isOccluded) {
         this.drawEntity(ctx, entity, parallaxFactor, wireframe, 1.0); // Always opaque
       }
     }
@@ -279,10 +285,13 @@ export class EntityManager {
       if (entity.height >= 50) continue; // Skip buildings
 
       const key = `${entity.col},${entity.row}`;
-      const occlusion = this.occlusionMap.get(key);
+      const occlusions = this.occlusionMap.get(key) || [];
+      
+      // Check if character is occluded by any building
+      const isOccluded = occlusions.some(occ => occ.height > entity.height);
       
       // Only draw if NOT occluded
-      if (!occlusion || !occlusion.buildingId || occlusion.height <= entity.height) {
+      if (!isOccluded) {
         this.drawEntity(ctx, entity, parallaxFactor, wireframe, 1.0);
       }
     }
@@ -317,17 +326,17 @@ export class EntityManager {
   }
 
   /**
-   * Occlusion map: stores which tiles are occluded and by what building
-   * Key: "col,row", Value: { buildingId, height } - the building that occludes this tile
+   * Occlusion map: stores which tiles are occluded and by what buildings
+   * Key: "col,row", Value: array of { buildingId, height } - all buildings that occlude this tile
    */
-  private occlusionMap: Map<string, { buildingId: string; height: number }> = new Map();
+  private occlusionMap: Map<string, Array<{ buildingId: string; height: number }>> = new Map();
 
   /**
    * Calculate occlusion map for all tiles
    * Algorithm:
    * 1. For each building, calculate its footprint (cols x rows it occupies)
    * 2. Cast occlusion shadow northwest from each occupied tile
-   * 3. Mark affected tiles with the occluding building info
+   * 3. Mark affected tiles with ALL occluding buildings (supports multiple buildings)
    */
   public calculateOcclusionMap(
     entities: Entity[],
@@ -337,10 +346,10 @@ export class EntityManager {
   ): void {
     this.occlusionMap.clear();
 
-    // Initialize all tiles with no occlusion
+    // Initialize all tiles with empty occlusion array
     for (let c = 0; c < mapWidth; c++) {
       for (let r = 0; r < mapHeight; r++) {
-        this.occlusionMap.set(`${c},${r}`, { buildingId: '', height: 0 });
+        this.occlusionMap.set(`${c},${r}`, []);
       }
     }
 
@@ -409,11 +418,13 @@ export class EntityManager {
 
               if (shadowCol >= 0 && shadowCol < mapWidth && shadowRow >= 0 && shadowRow < mapHeight) {
                 const shadowKey = `${shadowCol},${shadowRow}`;
-                const current = this.occlusionMap.get(shadowKey);
+                const occlusions = this.occlusionMap.get(shadowKey) || [];
 
-                // Update if this building casts a taller shadow
-                if (!current || buildingHeight > current.height) {
-                  this.occlusionMap.set(shadowKey, { buildingId, height: buildingHeight });
+                // Check if this building already occludes this tile
+                const existing = occlusions.find(o => o.buildingId === buildingId);
+                if (!existing) {
+                  occlusions.push({ buildingId, height: buildingHeight });
+                  this.occlusionMap.set(shadowKey, occlusions);
                 }
               }
             }

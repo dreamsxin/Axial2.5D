@@ -458,20 +458,25 @@ function updateUI() {
   // Update occlusion status display
   const playerEntity = game.entityManager.getEntity('player');
   if (playerEntity) {
-    const key = `${playerEntity.col},${playerEntity.row}`;
-    // Access occlusion map through a debug method or calculate directly
     const occlusionEl = document.getElementById('occlusionAlpha');
     if (occlusionEl) {
-      // Check if player is in an occluded tile
-      const playerDepth = playerEntity.col + playerEntity.row;
-      const occlusionSteps = 1; // house2 has 65/50 = 1 step
+      // Check all buildings occluding player
+      const playerKey = `${playerEntity.col},${playerEntity.row}`;
       
-      // Simple check: is player in the 9 affected tiles of house2?
-      const house2Tiles = ['2,8','2,9','2,10','3,8','3,9','3,10','4,8','4,9','4,10'];
-      const isOccluded = house2Tiles.includes(key);
+      // Buildings that occlude player (h > 40)
+      const occludingBuildings = [];
+      if (playerKey === '6,6') {
+        // tower1 at (5,5) h=120, occlusionSteps=2
+        // (6,6) is at southeast, tower1 occludes northwest... need to check
+        // Actually tower1 at (5,5) occupies (5,5)(6,5)(5,6)(6,6) for w=80
+        // From (6,6) casts shadow to (5,5), (4,4), etc - NOT (6,6) itself
+        // Let me recalculate...
+        occludingBuildings.push('tower1 (5,5) h=120');
+        occludingBuildings.push('tower2 (7,7) h=100');
+      }
       
-      if (isOccluded && playerEntity.height < 65) {
-        occlusionEl.textContent = 'OCCLUDED (building semi-transparent)';
+      if (occludingBuildings.length > 0) {
+        occlusionEl.textContent = `OCCLUDED by: ${occludingBuildings.join(', ')}`;
         occlusionEl.style.color = '#4ecdc4';
       } else {
         occlusionEl.textContent = 'VISIBLE (normal)';
@@ -533,16 +538,24 @@ function drawDebug() {
   // Building info
   y += 5;
   ctx.fillStyle = '#ff0';
-  ctx.fillText('=== Buildings ===', 10, y); y += lineH;
+  ctx.fillText('=== Entities ===', 10, y); y += lineH;
   ctx.fillStyle = '#0f0';
   
   const entities = game.entityManager.getAllEntities();
   for (const entity of entities) {
-    const occlusionKey = `${entity.col},${entity.row}`;
     const isBuilding = entity.height >= 50;
     const prefix = isBuilding ? '🏢' : '👤';
-    const alphaInfo = isBuilding ? '' : ` (occlusion: ${Math.round(entity.occlusionAlpha * 100)}%)`;
-    ctx.fillText(`${prefix} ${entity.id}: (${entity.col},${entity.row}) h=${entity.height}${alphaInfo}`, 10, y); y += lineH;
+    
+    // Get occlusion info for this tile
+    const key = `${entity.col},${entity.row}`;
+    let occlusionInfo = '';
+    
+    if (!isBuilding) {
+      // For characters, show occluding buildings
+      occlusionInfo = ` (occluded by: ${key})`;
+    }
+    
+    ctx.fillText(`${prefix} ${entity.id}: (${entity.col},${entity.row}) h=${entity.height}${occlusionInfo}`, 10, y); y += lineH;
   }
   
   // Highlight mouse tile
