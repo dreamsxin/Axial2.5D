@@ -361,8 +361,8 @@ export class GridSystem {
       }
     }
 
-    // Render grid lines if enabled (only on base layer)
-    if (showGrid && layerIndex === 0) {
+    // Render grid lines if enabled (on all layers like standalone.html)
+    if (showGrid) {
       this.renderGrid(ctx, camera, parallaxFactor, gridColor);
     }
 

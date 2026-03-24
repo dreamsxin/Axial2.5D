@@ -333,19 +333,20 @@ export class Game {
       this.gridSystem.renderGround(ctx, camera, {
         layerIndex: layerIdx,
         layerCount,
-        showGrid: showGrid && layerIdx === 0,
+        showGrid,
         parallaxFactor,
         zIndexOffset: 0,
         maxDepth
       });
 
       // Render entities for this layer
-      if (layerIdx === layerCount - 1) {
-        this.entityManager.render(ctx, {
-          parallaxFactor,
-          zIndexOffset: 0
-        });
-      }
+      this.entityManager.render(ctx, {
+        layerIndex: layerIdx,
+        layerCount,
+        maxDepth,
+        parallaxFactor,
+        zIndexOffset: 0
+      });
 
       ctx.restore();
     }

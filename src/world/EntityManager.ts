@@ -191,7 +191,7 @@ export class EntityManager {
   }
 
   /**
-   * Render all entities
+   * Render entities for a specific layer
    * @param ctx - Canvas rendering context
    * @param options - Render options
    */
@@ -199,11 +199,16 @@ export class EntityManager {
     ctx: CanvasRenderingContext2D,
     options?: {
       layerIndex?: number;
+      layerCount?: number;
+      maxDepth?: number;
       parallaxFactor?: number;
       zIndexOffset?: number;
       wireframe?: boolean;
     }
   ): void {
+    const layerIndex = options?.layerIndex;
+    const layerCount = options?.layerCount ?? 5;
+    const maxDepth = options?.maxDepth ?? 2000;
     const parallaxFactor = options?.parallaxFactor ?? 1.0;
     const zIndexOffset = options?.zIndexOffset ?? 0;
     const wireframe = options?.wireframe ?? false;
@@ -218,6 +223,15 @@ export class EntityManager {
     // Get all entities and sort by depth
     const sortedEntities = this.getAllEntities()
       .filter(e => e.visible !== false)
+      .filter(e => {
+        // If layerIndex specified, only render entities for this layer
+        if (layerIndex !== undefined) {
+          const depth = e.col + e.row;
+          const entityLayer = Math.floor((depth / maxDepth) * layerCount);
+          return entityLayer === layerIndex;
+        }
+        return true;
+      })
       .sort((a, b) => a.depth - b.depth);
 
     for (const entity of sortedEntities) {
