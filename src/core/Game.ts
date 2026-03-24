@@ -215,15 +215,8 @@ export class Game {
     if (this.sceneManager.getCurrentScene()) {
       this.sceneManager.render('#1a1a2e');
     } else if (this.gridSystem && this.entityManager) {
-      // Default render without scene manager
-      const groundItems = this.gridSystem.buildGroundRenderItems();
-      this.renderer.addRenderItems(groundItems);
-
-      const entityItems = this.entityManager.getRenderItems();
-      this.renderer.addRenderItems(entityItems);
-
-      this.renderer.render();
-      this.renderer.clearRenderItems();
+      // Default render with layer support
+      this.renderDefault();
     }
 
     // Draw debug info
@@ -295,5 +288,62 @@ export class Game {
       height,
       getContext: () => null
     } as any;
+  }
+
+  /**
+   * Render with layer support (default implementation)
+   * Renders ground tiles, entities, and grid lines organized by layers
+   */
+  public renderDefault(options?: {
+    layerCount?: number;
+    showGrid?: boolean;
+    foregroundAlpha?: number;
+    zIndexStep?: number;
+    parallaxRange?: number;
+  }): void {
+    if (!this.gridSystem || !this.entityManager) return;
+
+    const layerCount = options?.layerCount ?? 5;
+    const showGrid = options?.showGrid ?? true;
+    const foregroundAlpha = options?.foregroundAlpha ?? 0.6;
+    const zIndexStep = options?.zIndexStep ?? 30;
+    const parallaxRange = options?.parallaxRange ?? 0.7;
+    const maxDepth = 2000;
+
+    const ctx = this.renderer.ctx as CanvasRenderingContext2D;
+    const camera = this.renderer.camera;
+
+    // Render by layers (back to front)
+    for (let layerIdx = 0; layerIdx < layerCount; layerIdx++) {
+      // Calculate layer properties
+      const parallaxFactor = 0.3 + (layerIdx / (layerCount - 1)) * parallaxRange;
+      const alpha = 1.0 - (1.0 - foregroundAlpha) * (layerIdx / (layerCount - 1));
+      const zIndexOffset = layerIdx * zIndexStep;
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+
+      // Apply Z-axis offset
+      if (zIndexOffset !== 0) {
+        ctx.translate(0, -zIndexOffset);
+      }
+
+      // Render ground tiles for this layer
+      this.gridSystem.renderGround(ctx, camera, {
+        showGrid: showGrid && layerIdx === 0,
+        parallaxFactor,
+        zIndexOffset: 0
+      });
+
+      // Render entities for this layer
+      if (layerIdx === layerCount - 1) {
+        this.entityManager.render(ctx, {
+          parallaxFactor,
+          zIndexOffset: 0
+        });
+      }
+
+      ctx.restore();
+    }
   }
 }

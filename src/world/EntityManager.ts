@@ -189,6 +189,94 @@ export class EntityManager {
     }
     this.entities.clear();
   }
+
+  /**
+   * Render all entities
+   * @param ctx - Canvas rendering context
+   * @param options - Render options
+   */
+  public render(
+    ctx: CanvasRenderingContext2D,
+    options?: {
+      layerIndex?: number;
+      parallaxFactor?: number;
+      zIndexOffset?: number;
+      wireframe?: boolean;
+    }
+  ): void {
+    const parallaxFactor = options?.parallaxFactor ?? 1.0;
+    const zIndexOffset = options?.zIndexOffset ?? 0;
+    const wireframe = options?.wireframe ?? false;
+
+    ctx.save();
+    
+    // Apply Z-axis offset
+    if (zIndexOffset !== 0) {
+      ctx.translate(0, -zIndexOffset);
+    }
+
+    // Get all entities and sort by depth
+    const sortedEntities = this.getAllEntities()
+      .filter(e => e.visible !== false)
+      .sort((a, b) => a.depth - b.depth);
+
+    for (const entity of sortedEntities) {
+      const worldPos = this.gridSystem.gridToWorld(entity.col, entity.row);
+      
+      if (entity.draw) {
+        // Entity has custom draw logic
+        entity.draw(ctx);
+      } else {
+        // Default: draw as a box
+        this.drawDefaultEntity(ctx, entity, worldPos, parallaxFactor, wireframe);
+      }
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * Draw default entity representation (box)
+   */
+  private drawDefaultEntity(
+    ctx: CanvasRenderingContext2D,
+    entity: Entity,
+    worldPos: { x: number; z: number },
+    parallaxFactor: number,
+    wireframe: boolean
+  ): void {
+    // Entity may have width/length properties (extended entities)
+    const w = (entity as any).width || 50;
+    const l = (entity as any).length || 50;
+    const h = entity.height || 50;
+    const baseX = worldPos.x;
+    const baseY = worldPos.z;
+
+    // Get screen corners using camera
+    // Note: This is simplified - full implementation would use IsoBox
+    const screenPos = this.camera.worldToScreen(
+      baseX,
+      baseY,
+      0,
+      this.projection,
+      parallaxFactor
+    );
+
+    ctx.strokeStyle = wireframe ? '#fff' : '#444';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(
+      screenPos.sx - w / 2,
+      screenPos.sy - h,
+      w,
+      h
+    );
+
+    // Draw entity ID
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(entity.id, screenPos.sx, screenPos.sy - h - 5);
+  }
 }
 
 /**

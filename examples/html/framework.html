@@ -43,9 +43,7 @@
     <div class="stat"><span class="key">Wheel</span> Zoom</div>
     <h2>⚙️ Settings</h2>
     <button id="btnGrid" onclick="toggleGrid()">📐 Grid</button>
-    <button id="btnWire" onclick="toggleWireframe()">🔲 Wireframe</button>
     <button id="btnDebug" onclick="toggleDebug()">🐛 Debug</button>
-    <button id="btnLayers" onclick="toggleLayers()">🗂️ Show Layers</button>
     <button onclick="resetCamera()">📷 Reset Camera</button>
     <button onclick="regenerateClouds()">☁️ Regenerate Clouds</button>
     <div style="margin-top:10px;">
@@ -68,442 +66,232 @@
 </div>
 
 <script type="module">
-import { 
-  Projection, IsoCamera, CanvasRenderer, LayerManager, GridSystem, IsoBox,
-  gridToWorld, worldToGrid, blendColors
-} from '../../src/index.ts';
+import { Game, gridToWorld, worldToGrid } from '../../src/index.ts';
 
-// ==================== Constants ====================
-const CANVAS_WIDTH = 800;
-const CANVAS_HEIGHT = 600;
-const MAP_SIZE = 12;
-const CELL_SIZE = 50;
-const LAYER_COUNT = 5;
-const LAYER_COLORS = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#ffeaa7'];
+// ==================== Game Configuration ====================
+const CONFIG = {
+  width: 800,
+  height: 600,
+  mapSize: 12,
+  cellSize: 50,
+  layerCount: 5
+};
 
 // ==================== Game State ====================
 const state = {
   showGrid: true,
-  showWireframe: false,
   showDebug: false,
-  showLayerColors: false,
   player: { col: 6, row: 6 },
-  camera: { offsetX: 0, offsetY: 0, zoom: 1, targetOffsetX: 0, targetOffsetY: 0 },
-  entities: [],
-  lastTime: 0,
-  frameCount: 0,
-  fps: 0,
-  isDragging: false,
-  mouse: { screenX: 0, screenY: 0, worldX: 0, worldY: 0, gridCol: 0, gridRow: 0, overTile: null, layer: 0 },
+  camera: { zoom: 1 },
   layerSettings: {
     foregroundAlpha: 0.6,
     zIndexStep: 30,
     parallaxRange: 0.7
-  }
+  },
+  clouds: [],
+  lastTime: 0,
+  frameCount: 0,
+  fps: 0
 };
 
-// ==================== Framework Initialization ====================
+// ==================== Initialize Game ====================
 const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
 
-const projection = new Projection({ type: 'isometric', viewAngle: 45 });
-const camera = new IsoCamera(CANVAS_WIDTH, CANVAS_HEIGHT);
-const renderer = new CanvasRenderer(canvas, camera, projection);
+const game = new Game({
+  width: CONFIG.width,
+  height: CONFIG.height,
+  canvas: canvas,
+  projection: { type: 'isometric', viewAngle: 45 },
+  debug: { enabled: false }
+});
 
-// Create layer manager for utility functions
-const layerManager = new LayerManager(camera, projection, { maxDepth: 2000 });
+// Initialize with map data
+game.init({
+  width: CONFIG.mapSize,
+  height: CONFIG.mapSize,
+  tileW: CONFIG.cellSize,
+  tileH: CONFIG.cellSize,
+  tiles: []
+});
 
-// ==================== Helper Functions (using framework utilities) ====================
+// Setup map tiles
+setupMapTiles();
 
-/**
- * Convert world coordinates to screen coordinates with camera and parallax
- */
-function worldToScreen(worldX, worldY, worldZ, parallaxFactor = 1.0) {
-  // Sync camera zoom with state
-  camera.setZoom(state.camera.zoom);
-  return camera.worldToScreen(worldX, worldY, worldZ, projection, parallaxFactor);
-}
+// Add player entity
+game.entityManager.addEntity({
+  id: 'player',
+  col: state.player.col,
+  row: state.player.row,
+  width: 50,
+  length: 50,
+  height: 70,
+  depth: 0,
+  visible: true
+});
 
-/**
- * Convert screen coordinates to world coordinates with camera and parallax
- */
-function screenToWorld(screenX, screenY, parallaxFactor = 1.0) {
-  camera.setZoom(state.camera.zoom);
-  const world = camera.screenToWorld(screenX, screenY, projection, parallaxFactor, 0);
-  return { x: world.x, y: world.y };
-}
+// Create clouds
+regenerateClouds();
 
-// Grid conversion - use framework utilities
-// gridToWorld and worldToGrid are imported from framework
-
-/**
- * Get layer index for depth - use LayerManager utility
- */
-function getLayerForDepth(depth) {
-  return layerManager.getLayerIndexForDepth(depth, LAYER_COUNT, 2000);
-}
-
-/**
- * Get parallax factor - use LayerManager utility
- */
-function getParallaxFactor(layerIndex) {
-  return layerManager.getParallaxFactor(layerIndex, LAYER_COUNT, state.layerSettings.parallaxRange);
-}
-
-/**
- * Get layer alpha - use LayerManager utility
- */
-function getLayerAlpha(layerIndex) {
-  return layerManager.getLayerAlpha(layerIndex, LAYER_COUNT, state.layerSettings.foregroundAlpha);
-}
-
-/**
- * Get Z-axis offset - use LayerManager utility
- */
-function getZIndexOffset(layerIndex) {
-  return layerManager.getZIndexOffset(layerIndex, state.layerSettings.zIndexStep);
-}
-
-/**
- * Get player's layer based on position
- */
-function getPlayerLayer() {
-  return getLayerForDepth(state.player.col + state.player.row);
-}
-
-/**
- * Get player's layer parallax factor
- */
-function getPlayerLayerParallax() {
-  return getParallaxFactor(getPlayerLayer());
-}
-
-// blendColors is imported from framework
-
-// ==================== Map & Entities ====================
-const tiles = [];
-const cloudTiles = [];
-const layerClouds = {};
-
-const cloudCount = 8;
-for (let i = 0; i < cloudCount; i++) {
-  const c = Math.floor(Math.random() * (MAP_SIZE - 2)) + 1;
-  const r = Math.floor(Math.random() * (MAP_SIZE - 2)) + 1;
-  const cloudSize = 40 + Math.random() * 40;
-  const cloudY = -50 - Math.random() * 100;
-  cloudTiles.push({ col: c, row: r, size: cloudSize, offsetY: cloudY });
-}
-
-const layerCloudColors = { 1: '#ff6b6b', 2: '#4ecdc4', 3: '#ffeaa7' };
-for (let layerIdx = 1; layerIdx <= 3; layerIdx++) {
-  layerClouds[layerIdx] = [];
-  const count = 1 + Math.floor(Math.random() * 2);
-  for (let i = 0; i < count; i++) {
-    const c = Math.floor(Math.random() * (MAP_SIZE - 2)) + 1;
-    const r = Math.floor(Math.random() * (MAP_SIZE - 2)) + 1;
-    const cloudSize = 35 + Math.random() * 35;
-    const cloudY = -40 - Math.random() * 80;
-    layerClouds[layerIdx].push({ col: c, row: r, size: cloudSize, offsetY: cloudY, color: layerCloudColors[layerIdx] });
-  }
-}
-
-for (let c = 0; c < MAP_SIZE; c++) {
-  tiles[c] = [];
-  for (let r = 0; r < MAP_SIZE; r++) {
-    let type = 'grass', walkable = true;
-    if (c === 0 || c === MAP_SIZE-1 || r === 0 || r === MAP_SIZE-1) { type = 'water'; walkable = false; }
-    if (c === 6 || r === 6) type = 'road';
-    if ((c+r) % 4 === 0 && c > 1 && c < MAP_SIZE-2 && r > 1 && r < MAP_SIZE-2) type = 'stone';
-    tiles[c][r] = { type, walkable, layer: getLayerForDepth(c + r) };
-  }
-}
-
-const buildings = [
-  { id: 'townhall', col: 6, row: 6, width: 150, length: 150, height: 100 },
-  { id: 'house1', col: 2, row: 2, width: 100, length: 100, height: 70 },
-  { id: 'house2', col: 9, row: 2, width: 100, length: 100, height: 70 },
-  { id: 'house3', col: 2, row: 9, width: 100, length: 100, height: 70 },
-  { id: 'warehouse', col: 9, row: 9, width: 120, length: 100, height: 60 }
-];
-
-const buildingColors = [
-  ['#f5deb3', '#deb887', '#cd853f', '#b8860b', '#daa520', '#8b4513'],
-  ['#8b0000', '#a52a2a', '#8b0000', '#654321', '#8b4513', '#654321'],
-  ['#2e8b57', '#3cb371', '#2e8b57', '#654321', '#8b4513', '#654321'],
-  ['#4169e1', '#6495ed', '#4169e1', '#654321', '#8b4513', '#654321'],
-  ['#708090', '#778899', '#708090', '#654321', '#8b4513', '#654321']
-];
-
-const playerEntity = { id: 'player', col: state.player.col, row: state.player.row, width: 50, length: 50, height: 70 };
-state.entities = [...buildings, playerEntity];
-
-const colors = { grass: '#4a7c4e', water: '#4a90a4', road: '#666666', stone: '#888888', sand: '#c2b280' };
-
-// ==================== Render Functions ====================
-function drawTile(col, row, type, layerIndex) {
-  const worldPos = gridToWorld(col, row);
-  const parallax = getParallaxFactor(layerIndex);
-  const corners = [
-    { x: worldPos.x, y: worldPos.y },
-    { x: worldPos.x + CELL_SIZE, y: worldPos.y },
-    { x: worldPos.x + CELL_SIZE, y: worldPos.y + CELL_SIZE },
-    { x: worldPos.x, y: worldPos.y + CELL_SIZE }
-  ].map(c => worldToScreen(c.x, c.y, 0, parallax));
+// ==================== Map Setup ====================
+function setupMapTiles() {
+  const { mapSize } = CONFIG;
   
-  ctx.beginPath();
-  ctx.moveTo(corners[0].sx, corners[0].sy);
-  for (let i = 1; i < 4; i++) ctx.lineTo(corners[i].sx, corners[i].sy);
-  ctx.closePath();
-  
-  let fillColor = colors[type] || '#4a4a4a';
-  if (state.showLayerColors) {
-    const overlay = LAYER_COLORS[layerIndex];
-    fillColor = blendColors(fillColor, overlay, 0.3);
-  }
-  
-  ctx.fillStyle = fillColor;
-  ctx.fill();
-  ctx.strokeStyle = '#333';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-}
-
-function drawCloud(cloud, layerIndex) {
-  const worldPos = gridToWorld(cloud.col, cloud.row);
-  const parallax = getParallaxFactor(layerIndex);
-  const zOffset = getZIndexOffset(layerIndex);
-  const alpha = getLayerAlpha(layerIndex);
-  
-  const center = worldToScreen(worldPos.x, worldPos.y, cloud.offsetY, parallax);
-  const size = cloud.size;
-  
-  ctx.save();
-  ctx.globalAlpha = alpha * 0.9;
-  ctx.fillStyle = cloud.color || '#ffffff';
-  ctx.beginPath();
-  ctx.arc(center.sx, center.sy, size * 0.5, 0, Math.PI * 2);
-  ctx.arc(center.sx - size * 0.4, center.sy + size * 0.1, size * 0.4, 0, Math.PI * 2);
-  ctx.arc(center.sx + size * 0.4, center.sy + size * 0.1, size * 0.4, 0, Math.PI * 2);
-  ctx.arc(center.sx - size * 0.2, center.sy - size * 0.3, size * 0.35, 0, Math.PI * 2);
-  ctx.arc(center.sx + size * 0.2, center.sy - size * 0.3, size * 0.35, 0, Math.PI * 2);
-  ctx.fill();
-  
-  ctx.fillStyle = 'rgba(200, 200, 200, 0.3)';
-  ctx.beginPath();
-  ctx.arc(center.sx, center.sy + size * 0.3, size * 0.4, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-}
-
-function drawBox(entity, layerIndex) {
-  const baseX = entity.col * CELL_SIZE;
-  const baseY = entity.row * CELL_SIZE;
-  const w = entity.width, l = entity.length, h = entity.height;
-  const parallax = getParallaxFactor(layerIndex);
-  const zOffset = getZIndexOffset(layerIndex);
-  const alpha = getLayerAlpha(layerIndex);
-  
-  const corners = {
-    lbb: worldToScreen(baseX, baseY, 0, parallax),
-    rbb: worldToScreen(baseX + w, baseY, 0, parallax),
-    rfb: worldToScreen(baseX + w, baseY + l, 0, parallax),
-    lfb: worldToScreen(baseX, baseY + l, 0, parallax),
-    lbt: worldToScreen(baseX, baseY, h, parallax),
-    rbt: worldToScreen(baseX + w, baseY, h, parallax),
-    rft: worldToScreen(baseX + w, baseY + l, h, parallax),
-    lft: worldToScreen(baseX, baseY + l, h, parallax)
-  };
-  
-  const entityIndex = buildings.indexOf(entity);
-  const bcolors = entityIndex >= 0 ? buildingColors[entityIndex] : ['#ccc', '#aaa', '#888'];
-  
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  
-  if (!state.showWireframe) {
-    const faces = [
-      [corners.lbb, corners.rbb, corners.rfb, corners.lfb, bcolors[5]],
-      [corners.lbb, corners.lfb, corners.lft, corners.lbt, bcolors[4]],
-      [corners.lbb, corners.rbb, corners.rbt, corners.lbt, bcolors[3]],
-      [corners.lfb, corners.rfb, corners.rft, corners.lft, bcolors[2]],
-      [corners.rbb, corners.rfb, corners.rft, corners.rbt, bcolors[1]],
-      [corners.lbt, corners.rbt, corners.rft, corners.lft, bcolors[0]]
-    ];
-    
-    for (const [p1, p2, p3, p4, color] of faces) {
-      ctx.beginPath();
-      ctx.moveTo(p1.sx, p1.sy);
-      ctx.lineTo(p2.sx, p2.sy);
-      ctx.lineTo(p3.sx, p3.sy);
-      ctx.lineTo(p4.sx, p4.sy);
-      ctx.closePath();
-      ctx.fillStyle = color;
-      ctx.fill();
-      ctx.stroke();
+  for (let c = 0; c < mapSize; c++) {
+    for (let r = 0; r < mapSize; r++) {
+      let type = 'grass', walkable = true;
+      
+      // Borders = water
+      if (c === 0 || c === mapSize-1 || r === 0 || r === mapSize-1) {
+        type = 'water';
+        walkable = false;
+      }
+      // Center cross = road
+      if (c === 6 || r === 6) type = 'road';
+      // Checker pattern = stone
+      if ((c+r) % 4 === 0 && c > 1 && c < mapSize-2 && r > 1 && r < mapSize-2) {
+        type = 'stone';
+      }
+      
+      game.gridSystem.setTileType(c, r, type, walkable);
     }
   }
-  
-  ctx.restore();
-  
-  ctx.strokeStyle = state.showWireframe ? '#fff' : '#444';
-  ctx.lineWidth = 2;
-  
-  ctx.beginPath();
-  ctx.moveTo(corners.lbb.sx, corners.lbb.sy);
-  ctx.lineTo(corners.rbb.sx, corners.rbb.sy);
-  ctx.lineTo(corners.rfb.sx, corners.rfb.sy);
-  ctx.lineTo(corners.lfb.sx, corners.lfb.sy);
-  ctx.closePath();
-  ctx.stroke();
-  
-  ctx.beginPath();
-  ctx.moveTo(corners.lbt.sx, corners.lbt.sy);
-  ctx.lineTo(corners.rbt.sx, corners.rbt.sy);
-  ctx.lineTo(corners.rft.sx, corners.rft.sy);
-  ctx.lineTo(corners.lft.sx, corners.lft.sy);
-  ctx.closePath();
-  ctx.stroke();
-  
-  ctx.beginPath();
-  ctx.moveTo(corners.lbb.sx, corners.lbb.sy); ctx.lineTo(corners.lbt.sx, corners.lbt.sy);
-  ctx.moveTo(corners.rbb.sx, corners.rbb.sy); ctx.lineTo(corners.rbt.sx, corners.rbt.sy);
-  ctx.moveTo(corners.rfb.sx, corners.rfb.sy); ctx.lineTo(corners.rft.sx, corners.rft.sy);
-  ctx.moveTo(corners.lfb.sx, corners.lfb.sy); ctx.lineTo(corners.lft.sx, corners.lft.sy);
-  ctx.stroke();
 }
 
-function drawGrid(parallaxFactor = 1.0) {
-  if (!state.showGrid) return;
-  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-  ctx.lineWidth = 1;
+// ==================== Cloud System ====================
+function regenerateClouds() {
+  state.clouds = [];
+  const cloudCount = 6 + Math.floor(Math.random() * 5);
   
-  for (let c = 0; c <= MAP_SIZE; c++) {
-    const start = gridToWorld(c, 0), end = gridToWorld(c, MAP_SIZE);
-    const s1 = worldToScreen(start.x, start.y, 0, parallaxFactor);
-    const s2 = worldToScreen(end.x, end.y, 0, parallaxFactor);
-    ctx.beginPath(); ctx.moveTo(s1.sx, s1.sy); ctx.lineTo(s2.sx, s2.sy); ctx.stroke();
+  for (let i = 0; i < cloudCount; i++) {
+    state.clouds.push({
+      col: Math.floor(Math.random() * (CONFIG.mapSize - 2)) + 1,
+      row: Math.floor(Math.random() * (CONFIG.mapSize - 2)) + 1,
+      size: 40 + Math.random() * 40,
+      offsetY: -50 - Math.random() * 100
+    });
   }
-  for (let r = 0; r <= MAP_SIZE; r++) {
-    const start = gridToWorld(0, r), end = gridToWorld(MAP_SIZE, r);
-    const s1 = worldToScreen(start.x, start.y, 0, parallaxFactor);
-    const s2 = worldToScreen(end.x, end.y, 0, parallaxFactor);
-    ctx.beginPath(); ctx.moveTo(s1.sx, s1.sy); ctx.lineTo(s2.sx, s2.sy); ctx.stroke();
+  
+  log(`☁️ Regenerated ${state.clouds.length} clouds`, 'success');
+}
+
+// ==================== Game Loop ====================
+function gameLoop(timestamp) {
+  const delta = timestamp - state.lastTime;
+  state.lastTime = timestamp;
+  state.frameCount++;
+  
+  if (delta >= 1000) {
+    state.fps = state.frameCount;
+    state.frameCount = 0;
+  }
+  
+  // Update
+  update();
+  
+  // Render using framework's layer system
+  render();
+  
+  // Update UI
+  updateUI();
+  
+  requestAnimationFrame(gameLoop);
+}
+
+function update() {
+  // Update entities
+  if (game.entityManager) {
+    game.entityManager.updateAll(16);
+  }
+  
+  // Smooth camera follow player
+  updateCamera();
+  
+  // Update debug stats
+  if (game.debugSystem) {
+    game.debugSystem.updateFrameStats(16);
   }
 }
 
 function updateCamera() {
-  const worldPos = gridToWorld(state.player.col, state.player.row);
-  const playerLayer = getPlayerLayer();
-  const playerParallax = getParallaxFactor(playerLayer);
-  
-  const scale = state.camera.zoom;
-  const rawScreenX = (worldPos.x - worldPos.y) * COS_THETA * scale;
-  const rawScreenY = (worldPos.x + worldPos.y) * SIN_THETA * scale;
-  
-  state.camera.targetOffsetX = -rawScreenX / playerParallax;
-  state.camera.targetOffsetY = -rawScreenY / playerParallax;
-  
-  if (!state.isDragging) {
-    state.camera.offsetX += (state.camera.targetOffsetX - state.camera.offsetX) * 0.1;
-    state.camera.offsetY += (state.camera.targetOffsetY - state.camera.offsetY) * 0.1;
-  }
+  const worldPos = game.gridSystem.gridToWorld(state.player.col, state.player.row);
+  game.renderer.camera.setPosition(worldPos.x, worldPos.z, game.projection);
 }
 
 function render() {
-  ctx.fillStyle = '#1a1a2e';
-  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  // Use framework's built-in layer rendering
+  game.renderDefault({
+    layerCount: CONFIG.layerCount,
+    showGrid: state.showGrid,
+    foregroundAlpha: state.layerSettings.foregroundAlpha,
+    zIndexStep: state.layerSettings.zIndexStep,
+    parallaxRange: state.layerSettings.parallaxRange
+  });
   
-  updateCamera();
+  // Draw clouds on top (Layer 4 - foreground)
+  drawClouds();
   
-  for (let layerIdx = 0; layerIdx < LAYER_COUNT; layerIdx++) {
-    const parallax = getParallaxFactor(layerIdx);
-    const zOffset = getZIndexOffset(layerIdx);
-    
-    ctx.save();
-    if (zOffset !== 0) {
-      ctx.translate(0, -zOffset);
-    }
-    
-    for (let c = 0; c < MAP_SIZE; c++) {
-      for (let r = 0; r < MAP_SIZE; r++) {
-        if (getLayerForDepth(c + r) === layerIdx) {
-          drawTile(c, r, tiles[c][r].type, layerIdx);
-        }
-      }
-    }
-    
-    drawGrid(parallax);
-    
-    for (const entity of state.entities) {
-      const entityLayer = getLayerForDepth(entity.col + entity.row);
-      if (entityLayer === layerIdx) {
-        drawBox(entity, layerIdx);
-      }
-    }
-    
-    if (layerIdx === LAYER_COUNT - 1) {
-      for (const cloud of cloudTiles) {
-        drawCloud(cloud, layerIdx);
-      }
-    } else if (layerClouds[layerIdx]) {
-      for (const cloud of layerClouds[layerIdx]) {
-        drawCloud(cloud, layerIdx);
-      }
-    }
-    
-    ctx.restore();
-  }
-  
+  // Draw debug info
   if (state.showDebug) {
-    ctx.fillStyle = '#0f0';
-    ctx.font = '12px monospace';
-    let y = 20, lineH = 16;
-    
-    ctx.fillText(`FPS: ${state.fps}`, 10, y); y += lineH;
-    ctx.fillText(`Layers: ${LAYER_COUNT}`, 10, y); y += lineH;
-    ctx.fillText(`Player: (${state.player.col}, ${state.player.row})`, 10, y); y += lineH;
-    ctx.fillText(`Camera: (${state.camera.offsetX.toFixed(0)}, ${state.camera.offsetY.toFixed(0)})`, 10, y); y += lineH;
-    y += 5;
-    
-    ctx.fillStyle = '#ff0';
-    ctx.fillText('=== Mouse ===', 10, y); y += lineH;
-    ctx.fillStyle = '#0f0';
-    ctx.fillText(`Screen: (${state.mouse.screenX.toFixed(0)}, ${state.mouse.screenY.toFixed(0)})`, 10, y); y += lineH;
-    ctx.fillText(`World: (${state.mouse.worldX.toFixed(1)}, ${state.mouse.worldY.toFixed(1)})`, 10, y); y += lineH;
-    ctx.fillText(`Grid: (${state.mouse.gridCol}, ${state.mouse.gridRow})`, 10, y); y += lineH;
-    const mouseLayer = state.mouse.layer || getLayerForDepth(state.mouse.gridCol + state.mouse.gridRow);
-    ctx.fillText(`Layer: ${mouseLayer} (α:${(getLayerAlpha(mouseLayer)*100).toFixed(0)}% Z:${getZIndexOffset(mouseLayer)}px)`, 10, y); y += lineH;
-    ctx.fillText(`Player Layer: ${getPlayerLayer()} (parallax: ${(getPlayerLayerParallax()*100).toFixed(0)}%)`, 10, y); y += lineH;
-    ctx.fillText(`Parallax Range: ${state.layerSettings.parallaxRange}`, 10, y);
-    
-    const { gridCol, gridRow } = state.mouse;
-    if (gridCol >= 0 && gridCol < MAP_SIZE && gridRow >= 0 && gridRow < MAP_SIZE) {
-      const playerLayer = getPlayerLayer();
-      const playerParallax = getPlayerLayerParallax();
-      const playerZOffset = getZIndexOffset(playerLayer);
-      
-      const worldPos = gridToWorld(gridCol, gridRow);
-      const corners = [
-        worldToScreen(worldPos.x, worldPos.y, 0, playerParallax),
-        worldToScreen(worldPos.x + CELL_SIZE, worldPos.y, 0, playerParallax),
-        worldToScreen(worldPos.x + CELL_SIZE, worldPos.y + CELL_SIZE, 0, playerParallax),
-        worldToScreen(worldPos.x, worldPos.y + CELL_SIZE, 0, playerParallax)
-      ];
-      
-      ctx.save();
-      if (playerZOffset !== 0) ctx.translate(0, playerZOffset);
-      
-      ctx.beginPath();
-      ctx.moveTo(corners[0].sx, corners[0].sy);
-      for (let i = 1; i < 4; i++) ctx.lineTo(corners[i].sx, corners[i].sy);
-      ctx.closePath();
-      ctx.strokeStyle = '#ffff00';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.restore();
-    }
+    drawDebug();
+  }
+}
+
+function drawClouds() {
+  const ctx = canvas.getContext('2d');
+  const { layerCount } = CONFIG;
+  const layerIdx = layerCount - 1; // Foreground layer
+  
+  const parallaxFactor = 0.3 + (layerIdx / (layerCount - 1)) * state.layerSettings.parallaxRange;
+  const alpha = 1.0 - (1.0 - state.layerSettings.foregroundAlpha) * (layerIdx / (layerCount - 1));
+  const zIndexOffset = layerIdx * state.layerSettings.zIndexStep;
+  
+  ctx.save();
+  ctx.globalAlpha = alpha * 0.9;
+  
+  if (zIndexOffset !== 0) {
+    ctx.translate(0, -zIndexOffset);
   }
   
+  for (const cloud of state.clouds) {
+    const worldPos = gridToWorld(cloud.col, cloud.row, CONFIG.cellSize);
+    const screen = game.renderer.camera.worldToScreen(
+      worldPos.x,
+      worldPos.z,
+      cloud.offsetY,
+      game.projection,
+      parallaxFactor
+    );
+    
+    const size = cloud.size;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(screen.sx, screen.sy, size * 0.5, 0, Math.PI * 2);
+    ctx.arc(screen.sx - size * 0.4, screen.sy + size * 0.1, size * 0.4, 0, Math.PI * 2);
+    ctx.arc(screen.sx + size * 0.4, screen.sy + size * 0.1, size * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  
+  ctx.restore();
+}
+
+function drawDebug() {
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#0f0';
+  ctx.font = '12px monospace';
+  let y = 20, lineH = 16;
+  
+  ctx.fillText(`FPS: ${state.fps}`, 10, y); y += lineH;
+  ctx.fillText(`Layers: ${CONFIG.layerCount}`, 10, y); y += lineH;
+  ctx.fillText(`Player: (${state.player.col}, ${state.player.row})`, 10, y); y += lineH;
+  ctx.fillText(`Camera: (${game.renderer.camera.offsetX.toFixed(0)}, ${game.renderer.camera.offsetY.toFixed(0)})`, 10, y); y += lineH;
+  ctx.fillText(`Zoom: ${state.camera.zoom.toFixed(2)}`, 10, y); y += lineH;
+  ctx.fillText(`Parallax Range: ${state.layerSettings.parallaxRange}`, 10, y);
+}
+
+function updateUI() {
+  document.getElementById('fps').textContent = state.fps;
+  document.getElementById('layerCount').textContent = CONFIG.layerCount;
+  document.getElementById('playerPos').textContent = `${state.player.col}, ${state.player.row}`;
   updateLayerList();
 }
 
@@ -511,39 +299,35 @@ function updateLayerList() {
   const layerList = document.getElementById('layerList');
   if (!layerList) return;
   
-  const layerStats = {};
-  for (let i = 0; i < LAYER_COUNT; i++) layerStats[i] = { tiles: 0, entities: 0 };
-  
-  for (let c = 0; c < MAP_SIZE; c++) {
-    for (let r = 0; r < MAP_SIZE; r++) {
-      const layer = getLayerForDepth(c + r);
-      layerStats[layer].tiles++;
-    }
-  }
-  
-  for (const entity of state.entities) {
-    const layer = getLayerForDepth(entity.col + entity.row);
-    layerStats[layer].entities++;
-  }
-  
-  layerStats[LAYER_COUNT - 1].clouds = cloudTiles.length;
-  for (let i = 1; i <= 3; i++) layerStats[i].clouds = layerClouds[i] ? layerClouds[i].length : 0;
+  const { layerCount } = CONFIG;
+  const mapSize = CONFIG.mapSize;
   
   layerList.innerHTML = '';
-  for (let i = LAYER_COUNT - 1; i >= 0; i--) {
-    const parallax = getParallaxFactor(i);
-    const alpha = getLayerAlpha(i);
-    const zOffset = getZIndexOffset(i);
+  for (let i = layerCount - 1; i >= 0; i--) {
+    const parallax = 0.3 + (i / (layerCount - 1)) * state.layerSettings.parallaxRange;
+    const alpha = 1.0 - (1.0 - state.layerSettings.foregroundAlpha) * (i / (layerCount - 1));
+    const zOffset = i * state.layerSettings.zIndexStep;
+    
+    // Count tiles per layer
+    let tileCount = 0;
+    for (let c = 0; c < mapSize; c++) {
+      for (let r = 0; r < mapSize; r++) {
+        const depth = c + r;
+        const layerIdx = Math.floor((depth / 2000) * layerCount);
+        if (layerIdx === i) tileCount++;
+      }
+    }
+    
     const div = document.createElement('div');
     div.className = 'layer-item';
-    div.style.borderLeft = i === LAYER_COUNT - 1 ? '3px solid #4a90d9' : '3px solid transparent';
+    div.style.borderLeft = i === layerCount - 1 ? '3px solid #4a90d9' : '3px solid transparent';
     div.innerHTML = `
       <div style="display:flex;align-items:center;">
-        <div class="layer-color" style="background:${LAYER_COLORS[i]};opacity:${alpha}"></div>
-        <span>Layer ${i} ${i === LAYER_COUNT - 1 ? '(前景)' : i === 0 ? '(背景)' : ''}</span>
+        <div class="layer-color" style="background:#${i.toString(16).padStart(2, '0')}ff${i.toString(16).padStart(2, '0')}"></div>
+        <span>Layer ${i} ${i === layerCount - 1 ? '(前景)' : i === 0 ? '(背景)' : ''}</span>
       </div>
       <div style="text-align:right;">
-        <div>${layerStats[i].tiles} tiles | ${layerStats[i].entities} entities${layerStats[i].clouds ? ` | ☁️ ${layerStats[i].clouds} clouds` : ''}</div>
+        <div>${tileCount} tiles</div>
         <div style="font-size:0.75em;color:#888;">
           ${(parallax * 100).toFixed(0)}% parallax | ${(alpha * 100).toFixed(0)}% alpha | Z+${zOffset}
         </div>
@@ -554,78 +338,55 @@ function updateLayerList() {
 }
 
 // ==================== Input Handling ====================
-canvas.addEventListener('mousedown', e => {
-  state.isDragging = true;
-  const rect = canvas.getBoundingClientRect();
-  const lastX = e.clientX;
-  const lastY = e.clientY;
+// Setup input handlers via event bus
+game.eventBus.on('dragMove', (data) => {
+  game.renderer.camera.pan(-data.deltaX, -data.deltaY);
 });
 
-canvas.addEventListener('mouseup', () => { state.isDragging = false; });
-
-canvas.addEventListener('mousemove', e => {
-  const rect = canvas.getBoundingClientRect();
-  state.mouse.screenX = e.clientX - rect.left;
-  state.mouse.screenY = e.clientY - rect.top;
-  
-  const playerParallax = getPlayerLayerParallax();
-  const playerZOffset = getZIndexOffset(getPlayerLayer());
-  
-  const adjScreenX = state.mouse.screenX;
-  const adjScreenY = state.mouse.screenY - playerZOffset;
-  
-  const world = screenToWorld(adjScreenX, adjScreenY, playerParallax);
-  state.mouse.worldX = world.x;
-  state.mouse.worldY = world.y;
-  
-  const grid = worldToGrid(world.x, world.y);
-  state.mouse.gridCol = grid.col;
-  state.mouse.gridRow = grid.row;
-  state.mouse.overTile = (grid.col >= 0 && grid.col < MAP_SIZE && grid.row >= 0 && grid.row < MAP_SIZE) ? tiles[grid.col][grid.row] : null;
-  state.mouse.layer = getLayerForDepth(grid.col + grid.row);
-  
-  if (state.isDragging) {
-    state.camera.offsetX += e.movementX;
-    state.camera.offsetY += e.movementY;
-  }
-});
-
-canvas.addEventListener('wheel', e => {
-  e.preventDefault();
-  state.camera.zoom *= e.deltaY > 0 ? 0.9 : 1.1;
+game.eventBus.on('zoom', (data) => {
+  state.camera.zoom *= data.delta;
   state.camera.zoom = Math.max(0.5, Math.min(3, state.camera.zoom));
+  game.renderer.camera.setZoom(state.camera.zoom);
 });
 
-canvas.addEventListener('click', e => {
-  const rect = canvas.getBoundingClientRect();
-  const playerParallax = getPlayerLayerParallax();
-  const playerZOffset = getZIndexOffset(getPlayerLayer());
+game.eventBus.on('click', (data) => {
+  if (data.worldX === undefined || data.worldZ === undefined) return;
   
-  const screenX = e.clientX - rect.left;
-  const screenY = e.clientY - rect.top - playerZOffset;
+  const gridPos = game.gridSystem.worldToGrid(data.worldX, data.worldZ);
+  const tile = game.gridSystem.getTile(gridPos.col, gridPos.row);
   
-  const world = screenToWorld(screenX, screenY, playerParallax);
-  const grid = worldToGrid(world.x, world.y);
-  if (grid.col >= 0 && grid.col < MAP_SIZE && grid.row >= 0 && grid.row < MAP_SIZE && tiles[grid.col][grid.row].walkable) {
-    state.player.col = grid.col;
-    state.player.row = grid.row;
-    playerEntity.col = grid.col;
-    playerEntity.row = grid.row;
-    log(`Moved to (${grid.col}, ${grid.row})`, 'info');
+  if (tile && tile.walkable) {
+    state.player.col = gridPos.col;
+    state.player.row = gridPos.row;
+    
+    // Move player entity
+    const player = game.entityManager.getEntity('player');
+    if (player) {
+      game.entityManager.moveEntity(player, gridPos.col, gridPos.row);
+    }
+    
+    log(`Moved to (${gridPos.col}, ${gridPos.row})`, 'info');
   }
 });
 
+// Keyboard controls
 document.addEventListener('keydown', e => {
   let { col, row } = state.player;
   if (e.key === 'w' || e.key === 'ArrowUp') row--;
   if (e.key === 's' || e.key === 'ArrowDown') row++;
   if (e.key === 'a' || e.key === 'ArrowLeft') col--;
   if (e.key === 'd' || e.key === 'ArrowRight') col++;
-  if (col >= 0 && col < MAP_SIZE && row >= 0 && row < MAP_SIZE && tiles[col][row].walkable) {
+  
+  const tile = game.gridSystem.getTile(col, row);
+  if (tile && tile.walkable) {
     state.player.col = col;
     state.player.row = row;
-    playerEntity.col = col;
-    playerEntity.row = row;
+    
+    const player = game.entityManager.getEntity('player');
+    if (player) {
+      game.entityManager.moveEntity(player, col, row);
+    }
+    
     log(`Moved to (${col}, ${row})`, 'info');
   }
 });
@@ -636,89 +397,36 @@ window.toggleGrid = () => {
   document.getElementById('btnGrid').classList.toggle('active', state.showGrid);
 };
 
-window.toggleWireframe = () => {
-  state.showWireframe = !state.showWireframe;
-  document.getElementById('btnWire').classList.toggle('active', state.showWireframe);
-};
-
 window.toggleDebug = () => {
   state.showDebug = !state.showDebug;
   document.getElementById('btnDebug').classList.toggle('active', state.showDebug);
-};
-
-window.toggleLayers = () => {
-  state.showLayerColors = !state.showLayerColors;
-  document.getElementById('btnLayers').classList.toggle('active', state.showLayerColors);
+  game.debugSystem.enabled = state.showDebug;
 };
 
 window.resetCamera = () => {
-  centerCamera();
   state.camera.zoom = 1;
+  game.renderer.camera.setZoom(1);
+  game.renderer.camera.reset();
+  updateCamera();
   log('Camera reset', 'info');
 };
 
 window.setForegroundAlpha = (value) => {
   state.layerSettings.foregroundAlpha = parseFloat(value);
   document.getElementById('fgAlphaVal').textContent = value;
-  log(`Foreground alpha: ${value}`, 'info');
 };
 
 window.setZIndexStep = (value) => {
   state.layerSettings.zIndexStep = parseInt(value);
   document.getElementById('zStepVal').textContent = value;
-  log(`Z-axis step: ${value}`, 'info');
 };
 
 window.setParallaxRange = (value) => {
   state.layerSettings.parallaxRange = parseFloat(value);
   document.getElementById('parallaxRangeVal').textContent = value;
-  const layer0Parallax = (0.3 * 100).toFixed(0);
-  const layer4Parallax = (0.3 + parseFloat(value)) * 100;
-  log(`Parallax range: ${value} (Layer 0: ${layer0Parallax}%, Layer 4: ${layer4Parallax.toFixed(0)}%)`, 'info');
 };
 
-window.regenerateClouds = () => {
-  cloudTiles.length = 0;
-  const cloudCount = 6 + Math.floor(Math.random() * 5);
-  for (let i = 0; i < cloudCount; i++) {
-    const c = Math.floor(Math.random() * (MAP_SIZE - 2)) + 1;
-    const r = Math.floor(Math.random() * (MAP_SIZE - 2)) + 1;
-    cloudTiles.push({ col: c, row: r, size: 40 + Math.random() * 40, offsetY: -50 - Math.random() * 100 });
-  }
-  
-  for (let layerIdx = 1; layerIdx <= 3; layerIdx++) {
-    layerClouds[layerIdx].length = 0;
-    const count = 1 + Math.floor(Math.random() * 2);
-    for (let i = 0; i < count; i++) {
-      const c = Math.floor(Math.random() * (MAP_SIZE - 2)) + 1;
-      const r = Math.floor(Math.random() * (MAP_SIZE - 2)) + 1;
-      layerClouds[layerIdx].push({
-        col: c, row: r,
-        size: 35 + Math.random() * 35,
-        offsetY: -40 - Math.random() * 80,
-        color: layerCloudColors[layerIdx]
-      });
-    }
-  }
-  
-  const total = cloudTiles.length + Object.keys(layerClouds).reduce((sum, k) => sum + layerClouds[k].length, 0);
-  log(`Regenerated ${total} clouds`, 'success');
-};
-
-function centerCamera() {
-  const worldPos = gridToWorld(state.player.col, state.player.row);
-  const playerLayer = getPlayerLayer();
-  const playerParallax = getParallaxFactor(playerLayer);
-  
-  const scale = state.camera.zoom;
-  const rawScreenX = (worldPos.x - worldPos.y) * COS_THETA * scale;
-  const rawScreenY = (worldPos.x + worldPos.y) * SIN_THETA * scale;
-  
-  state.camera.offsetX = -rawScreenX / playerParallax;
-  state.camera.offsetY = -rawScreenY / playerParallax;
-  state.camera.targetOffsetX = state.camera.offsetX;
-  state.camera.targetOffsetY = state.camera.offsetY;
-}
+window.regenerateClouds = regenerateClouds;
 
 function log(msg, type = '') {
   const logEl = document.getElementById('log');
@@ -730,25 +438,11 @@ function log(msg, type = '') {
   while (logEl.children.length > 20) logEl.removeChild(logEl.firstChild);
 }
 
-// ==================== Game Loop ====================
-function loop(time) {
-  const delta = time - state.lastTime;
-  state.lastTime = time;
-  state.frameCount++;
-  if (delta >= 1000) { state.fps = state.frameCount; state.frameCount = 0; }
-  render();
-  document.getElementById('fps').textContent = state.fps;
-  document.getElementById('layerCount').textContent = LAYER_COUNT;
-  document.getElementById('playerPos').textContent = `${state.player.col}, ${state.player.row}`;
-  requestAnimationFrame(loop);
-}
-
 // ==================== Start Game ====================
-centerCamera();
-log('Axial2.5D Framework Example started!', 'success');
-log(`${LAYER_COUNT} layers with parallax scrolling`, 'info');
-log(`☁️ ${cloudTiles.length} clouds in Layer 4 (foreground sky)`, 'info');
-requestAnimationFrame(loop);
+log('🎮 Axial2.5D Framework Example started!', 'success');
+log(`Map: ${CONFIG.mapSize}x${CONFIG.mapSize}, ${CONFIG.layerCount} layers`, 'info');
+game.start();
+requestAnimationFrame(gameLoop);
 </script>
 </body>
 </html>
