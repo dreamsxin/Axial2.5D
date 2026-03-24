@@ -68,7 +68,7 @@
 
 <script type="module">
 import { 
-  Game, LayerManager, EffectSystem,
+  Game, LayerManager, EffectSystem, CameraController,
   gridToWorld, worldToGrid 
 } from '../../src/index.ts';
 
@@ -146,6 +146,25 @@ game.inputManager.setLayerConfig({
 });
 game.inputManager.init();
 
+// Initialize camera controller (NEW - Phase 1)
+const cameraController = new CameraController({
+  camera: game.renderer.camera,
+  projection: game.projection,
+  gridSystem: game.gridSystem,
+  entityManager: game.entityManager,
+  layerCount: CONFIG.layerCount,
+  maxDepth: 2000,
+  parallaxRange: 0.7,
+  baseParallax: 0.3
+});
+
+// Start following player with auto-parallax
+cameraController.follow({
+  entityId: 'player',
+  smoothness: 0.1,
+  autoParallax: true
+});
+
 // Track mouse position for debug display
 canvas.addEventListener('mousemove', e => {
   const rect = canvas.getBoundingClientRect();
@@ -156,21 +175,34 @@ canvas.addEventListener('mousemove', e => {
 // Setup event handlers
 setupEventHandlers();
 
-// Initialize camera to center on player
-function initCamera() {
-  const playerDepth = state.player.col + state.player.row;
-  const playerLayer = layerManager.getLayerForDepth(playerDepth);
-  const playerParallax = layerManager.calculateParallaxFactor(playerLayer);
-  const worldPos = gridToWorld(state.player.col, state.player.row, CONFIG.cellSize);
+// Setup render hooks (NEW - Phase 1)
+// Instead of overriding game.render, use hooks to inject custom logic
+game.renderHooks = {
+  onAfterClear: (ctx) => {
+    // Update camera follow (auto-calculates parallax)
+    cameraController.update();
+  },
   
-  // Instant snap to player initially (match standalone.html behavior)
-  game.renderer.camera.follow(worldPos.x, worldPos.y, 0, game.projection, {
-    smoothness: 0,  // Instant (0 = no interpolation)
-    parallaxFactor: playerParallax
-  });
-}
-
-initCamera();
+  onAfterLayers: (ctx) => {
+    // Render effects after layers
+    effectSystem.update(16);
+    for (let i = 0; i < CONFIG.layerCount; i++) {
+      const layerInfo = layerManager.getLayerStats(i);
+      effectSystem.render(ctx, i, {
+        parallaxFactor: layerInfo.parallax,
+        alpha: layerInfo.alpha
+      });
+    }
+  },
+  
+  onBeforePresent: (ctx) => {
+    // Draw debug info
+    drawDebug();
+    
+    // Update UI
+    updateUI();
+  }
+};
 
 // Start game loop
 game.start();
@@ -354,7 +386,7 @@ window.toggleDebug = () => {
 
 window.resetCamera = () => {
   game.renderer.camera.reset();
-  updateCamera();
+  cameraController.update(); // Re-apply follow
   log('Camera reset', 'info');
 };
 
@@ -390,65 +422,10 @@ window.updateLayerSettings = () => {
 };
 
 // ==================== Update & Render ====================
-function updateCamera() {
-  // Use framework's built-in camera follow
-  const playerDepth = state.player.col + state.player.row;
-  const playerLayer = layerManager.getLayerForDepth(playerDepth);
-  const playerParallax = layerManager.calculateParallaxFactor(playerLayer);
-  
-  const worldPos = gridToWorld(state.player.col, state.player.row, CONFIG.cellSize);
-  
-  // Simple follow with smoothness (match standalone.html: 0.1 = 10% interpolation)
-  game.renderer.camera.follow(
-    worldPos.x,
-    worldPos.y,
-    0,  // ground level
-    game.projection,
-    {
-      smoothness: 0.1,  // Move 10% toward target each frame
-      parallaxFactor: playerParallax
-    }
-  );
-}
-
-// Override game's render to add effects and camera follow
-const originalRender = game.render.bind(game);
-game.render = function() {
-  // Update camera follow (must be called every frame)
-  updateCamera();
-  
-  // Update effects
-  effectSystem.update(16);
-  
-  // Clear canvas first (prevents ghosting/trails)
-  game.renderer.clear('#1a1a2e');
-  
-  // Use framework's built-in layer rendering (includes grid, tiles, entities)
-  game.renderDefault({
-    layerCount: CONFIG.layerCount,
-    showGrid: state.showGrid,
-    foregroundAlpha: state.layerSettings.foregroundAlpha,
-    zIndexStep: state.layerSettings.zIndexStep,
-    parallaxRange: state.layerSettings.parallaxRange
-  });
-  
-  // Render effects for each layer (clouds, etc.)
-  // Note: Z-axis offset already applied by game.renderDefault()
-  const ctx = game.renderer.ctx;
-  for (let i = 0; i < CONFIG.layerCount; i++) {
-    const layerInfo = layerManager.getLayerStats(i);
-    effectSystem.render(ctx, i, {
-      parallaxFactor: layerInfo.parallax,
-      alpha: layerInfo.alpha
-    });
-  }
-  
-  // Draw debug info
-  drawDebug();
-  
-  // Update UI
-  updateUI();
-};
+// NOTE: Camera follow and render pipeline now handled by:
+// - CameraController (auto-follow with parallax)
+// - game.renderHooks (inject custom logic into render pipeline)
+// See initialization code above for details.
 
 function updateUI() {
   document.getElementById('fps').textContent = state.fps;

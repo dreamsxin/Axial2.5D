@@ -57,6 +57,8 @@ export type { LogLevel, LoggerConfig } from './utils/Logger';
 // Controllers
 export { PlayerController } from './controllers/PlayerController';
 export type { PlayerControllerConfig } from './controllers/PlayerController';
+export { CameraController } from './controllers/CameraController';
+export type { CameraFollowConfig, CameraControllerConfig } from './controllers/CameraController';
 
 // Camera types
 export type { ScreenPoint3D, WorldPoint3D } from './core/IsoCamera';

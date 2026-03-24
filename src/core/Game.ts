@@ -21,8 +21,24 @@ export interface GameConfig {
   projection?: ProjectionConfig;
   debug?: Partial<DebugConfig>;
   canvas?: HTMLCanvasElement | OffscreenCanvas;
+  
+  // Legacy render callbacks (use renderHooks for more control)
   onBeforeRender?: (ctx: CanvasRenderingContext2D) => void;
   onAfterRender?: (ctx: CanvasRenderingContext2D) => void;
+  
+  // Render hook callbacks
+  renderHooks?: {
+    /** Called before clearing the canvas */
+    onBeforeClear?: (ctx: CanvasRenderingContext2D) => void;
+    /** Called after clearing, before rendering layers */
+    onAfterClear?: (ctx: CanvasRenderingContext2D) => void;
+    /** Called after rendering all layers, before effects */
+    onAfterLayers?: (ctx: CanvasRenderingContext2D) => void;
+    /** Called after rendering effects, before debug */
+    onAfterEffects?: (ctx: CanvasRenderingContext2D) => void;
+    /** Called after everything, before presenting */
+    onBeforePresent?: (ctx: CanvasRenderingContext2D) => void;
+  };
 }
 
 export class Game {
@@ -43,6 +59,13 @@ export class Game {
   private canvas: HTMLCanvasElement | OffscreenCanvas;
   public onBeforeRender?: (ctx: CanvasRenderingContext2D) => void;
   public onAfterRender?: (ctx: CanvasRenderingContext2D) => void;
+  public renderHooks?: {
+    onBeforeClear?: (ctx: CanvasRenderingContext2D) => void;
+    onAfterClear?: (ctx: CanvasRenderingContext2D) => void;
+    onAfterLayers?: (ctx: CanvasRenderingContext2D) => void;
+    onAfterEffects?: (ctx: CanvasRenderingContext2D) => void;
+    onBeforePresent?: (ctx: CanvasRenderingContext2D) => void;
+  };
 
   constructor(config: GameConfig) {
     // Initialize event bus first
@@ -86,6 +109,7 @@ export class Game {
     // Set render callbacks
     this.onBeforeRender = config.onBeforeRender;
     this.onAfterRender = config.onAfterRender;
+    this.renderHooks = config.renderHooks;
   }
 
   /**
@@ -215,17 +239,37 @@ export class Game {
   }
 
   /**
-   * Render the game
+   * Render the game with extensible pipeline hooks
+   * 
+   * Render order:
+   * 1. onBeforeClear - Before clearing canvas
+   * 2. Clear canvas
+   * 3. onAfterClear - After clearing, before layers
+   * 4. Render layers (scene or default)
+   * 5. onAfterLayers - After layers, before effects
+   * 6. Render effects (if any registered)
+   * 7. onAfterEffects - After effects, before debug
+   * 8. Draw debug
+   * 9. onBeforePresent - Before presenting frame
+   * 10. Present frame
    */
   public render(): void {
     const ctx = this.renderer.ctx as CanvasRenderingContext2D;
     
+    // Hook: Before clear
+    if (this.renderHooks?.onBeforeClear) {
+      this.renderHooks.onBeforeClear(ctx);
+    }
+    if (this.onBeforeRender) {
+      this.onBeforeRender(ctx);
+    }
+    
     // Clear
     this.renderer.clear('#1a1a2e');
     
-    // Before render callback
-    if (this.onBeforeRender) {
-      this.onBeforeRender(ctx);
+    // Hook: After clear
+    if (this.renderHooks?.onAfterClear) {
+      this.renderHooks.onAfterClear(ctx);
     }
 
     // Render current scene or default
@@ -235,11 +279,24 @@ export class Game {
       // Default render with layer support
       this.renderDefault();
     }
+    
+    // Hook: After layers
+    if (this.renderHooks?.onAfterLayers) {
+      this.renderHooks.onAfterLayers(ctx);
+    }
 
     // Draw debug info
     this.debugSystem.draw(ctx);
     
-    // After render callback
+    // Hook: After effects / before present
+    if (this.renderHooks?.onAfterEffects) {
+      this.renderHooks.onAfterEffects(ctx);
+    }
+    if (this.renderHooks?.onBeforePresent) {
+      this.renderHooks.onBeforePresent(ctx);
+    }
+    
+    // After render callback (legacy)
     if (this.onAfterRender) {
       this.onAfterRender(ctx);
     }
