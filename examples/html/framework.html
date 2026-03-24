@@ -581,8 +581,8 @@ function drawDebug() {
   for (const entity of entities) {
     if (entity.height >= 50) { // Building
       const blockedSteps = Math.floor(entity.height / CONFIG.cellSize);
-      const buildingCols = Math.ceil((entity as any).width / CONFIG.cellSize);
-      const buildingRows = Math.ceil((entity as any).length / CONFIG.cellSize);
+      const buildingCols = Math.ceil((entity).width / CONFIG.cellSize);
+      const buildingRows = Math.ceil((entity).length / CONFIG.cellSize);
       
       const directions = [
         { dc: -1, dr: -1 },  // Northwest
