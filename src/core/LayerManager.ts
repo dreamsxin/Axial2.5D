@@ -166,4 +166,25 @@ export class LayerManager {
       zIndexOffset: this.calculateZIndexOffset(layerIndex)
     };
   }
+
+  /**
+   * Get statistics for all layers
+   */
+  public getAllStats(): Array<{
+    index: number;
+    parallax: number;
+    alpha: number;
+    zIndexOffset: number;
+  }> {
+    const stats: Array<{index: number; parallax: number; alpha: number; zIndexOffset: number}> = [];
+    for (let i = 0; i < this.layerCount; i++) {
+      stats.push({
+        index: i,
+        parallax: this.calculateParallaxFactor(i),
+        alpha: this.calculateLayerAlpha(i),
+        zIndexOffset: this.calculateZIndexOffset(i)
+      });
+    }
+    return stats;
+  }
 }

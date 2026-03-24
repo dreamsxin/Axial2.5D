@@ -49,6 +49,12 @@ export { ResourceManager } from './resource/ResourceManager';
 // Utils
 export { EventBus } from './utils/EventBus';
 export * from './utils/IsoUtils';
+export { Logger, logger } from './utils/Logger';
+export type { LogLevel, LoggerConfig } from './utils/Logger';
+
+// Controllers
+export { PlayerController } from './controllers/PlayerController';
+export type { PlayerControllerConfig } from './controllers/PlayerController';
 
 // Camera types
 export type { ScreenPoint3D, WorldPoint3D } from './core/IsoCamera';

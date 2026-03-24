@@ -21,6 +21,8 @@ export interface GameConfig {
   projection?: ProjectionConfig;
   debug?: Partial<DebugConfig>;
   canvas?: HTMLCanvasElement | OffscreenCanvas;
+  onBeforeRender?: (ctx: CanvasRenderingContext2D) => void;
+  onAfterRender?: (ctx: CanvasRenderingContext2D) => void;
 }
 
 export class Game {
@@ -39,6 +41,8 @@ export class Game {
   private running: boolean = false;
   private lastTime: number = 0;
   private canvas: HTMLCanvasElement | OffscreenCanvas;
+  public onBeforeRender?: (ctx: CanvasRenderingContext2D) => void;
+  public onAfterRender?: (ctx: CanvasRenderingContext2D) => void;
 
   constructor(config: GameConfig) {
     // Initialize event bus first
@@ -78,6 +82,10 @@ export class Game {
     if (config.debug) {
       this.debugSystem.setConfig(config.debug);
     }
+    
+    // Set render callbacks
+    this.onBeforeRender = config.onBeforeRender;
+    this.onAfterRender = config.onAfterRender;
   }
 
   /**
@@ -210,8 +218,15 @@ export class Game {
    * Render the game
    */
   public render(): void {
+    const ctx = this.renderer.ctx as CanvasRenderingContext2D;
+    
     // Clear
     this.renderer.clear('#1a1a2e');
+    
+    // Before render callback
+    if (this.onBeforeRender) {
+      this.onBeforeRender(ctx);
+    }
 
     // Render current scene or default
     if (this.sceneManager.getCurrentScene()) {
@@ -222,8 +237,12 @@ export class Game {
     }
 
     // Draw debug info
-    const ctx = this.renderer.ctx as CanvasRenderingContext2D;
     this.debugSystem.draw(ctx);
+    
+    // After render callback
+    if (this.onAfterRender) {
+      this.onAfterRender(ctx);
+    }
   }
 
   /**
