@@ -430,6 +430,11 @@ function drawDebug() {
   ctx.font = '12px monospace';
   let y = 20, lineH = 16;
   
+  // Calculate player layer info once
+  const playerDepth = state.player.col + state.player.row;
+  const playerLayer = layerManager.getLayerForDepth(playerDepth);
+  const playerParallax = layerManager.calculateParallaxFactor(playerLayer);
+  
   // Basic info
   ctx.fillText(`FPS: ${state.fps}`, 10, y); y += lineH;
   ctx.fillText(`Layers: ${CONFIG.layerCount}`, 10, y); y += lineH;
@@ -437,55 +442,65 @@ function drawDebug() {
   ctx.fillText(`Camera: (${game.renderer.camera.offsetX.toFixed(0)}, ${game.renderer.camera.offsetY.toFixed(0)})`, 10, y); y += lineH;
   y += 5;
   
-  // Mouse info
-  const mouseInfo = game.inputManager.getMouseGridPosition(state.player.col, state.player.row);
-  ctx.fillStyle = '#ff0';
-  ctx.fillText('=== Mouse ===', 10, y); y += lineH;
-  ctx.fillStyle = '#0f0';
-  ctx.fillText(`Screen: (${state.mouse.x.toFixed(0)}, ${state.mouse.y.toFixed(0)})`, 10, y); y += lineH;
-  
-  // Calculate world position from mouse (use InputManager which handles rect automatically)
-  const world = game.inputManager.screenToWorld(state.mouse.x, state.mouse.y, mouseInfo.layer);
-  
-  ctx.fillText(`World: (${world.x.toFixed(1)}, ${world.y.toFixed(1)})`, 10, y); y += lineH;
-  ctx.fillText(`Grid: (${mouseInfo.col}, ${mouseInfo.row})`, 10, y); y += lineH;
-  
-  const mouseLayerInfo = layerManager.getLayerStats(mouseInfo.layer);
-  ctx.fillText(`Layer: ${mouseInfo.layer} (α:${(mouseLayerInfo.alpha*100).toFixed(0)}% Z:${mouseLayerInfo.zIndexOffset}px)`, 10, y); y += lineH;
+  // Mouse info (only show if mouse has been tracked)
+  if (state.mouse.x !== undefined && state.mouse.y !== undefined) {
+    const mouseInfo = game.inputManager.getMouseGridPosition(state.player.col, state.player.row);
+    ctx.fillStyle = '#ff0';
+    ctx.fillText('=== Mouse ===', 10, y); y += lineH;
+    ctx.fillStyle = '#0f0';
+    ctx.fillText(`Screen: (${state.mouse.x.toFixed(0)}, ${state.mouse.y.toFixed(0)})`, 10, y); y += lineH;
+    
+    if (mouseInfo) {
+      // Calculate world position from mouse (use InputManager which handles rect automatically)
+      const world = game.inputManager.screenToWorld(state.mouse.x, state.mouse.y, mouseInfo.layer);
+      
+      if (world) {
+        ctx.fillText(`World: (${world.x.toFixed(1)}, ${world.y.toFixed(1)})`, 10, y); y += lineH;
+        ctx.fillText(`Grid: (${mouseInfo.col}, ${mouseInfo.row})`, 10, y); y += lineH;
+        
+        const mouseLayerInfo = layerManager.getLayerStats(mouseInfo.layer);
+        ctx.fillText(`Layer: ${mouseInfo.layer} (α:${(mouseLayerInfo.alpha*100).toFixed(0)}% Z:${mouseLayerInfo.zIndexOffset}px)`, 10, y); y += lineH;
+      }
+    }
+  }
   
   const playerLayerInfo = layerManager.getLayerStats(playerLayer);
   ctx.fillText(`Player Layer: ${playerLayer} (parallax: ${(playerLayerInfo.parallax*100).toFixed(0)}%)`, 10, y); y += lineH;
   ctx.fillText(`Parallax Range: ${state.layerSettings.parallaxRange}`, 10, y); y += lineH;
   
-  // Highlight mouse tile
-  const { col, row } = mouseInfo;
-  if (col >= 0 && col < CONFIG.mapSize && row >= 0 && row < CONFIG.mapSize) {
-    const playerZOffset = playerLayerInfo.zIndexOffset;
-    const worldPos = gridToWorld(col, row, CONFIG.cellSize);
+  // Highlight mouse tile (only if mouse has been tracked)
+  if (state.mouse.x !== undefined && state.mouse.y !== undefined) {
+    const mouseInfo = game.inputManager.getMouseGridPosition(state.player.col, state.player.row);
+    const { col, row } = mouseInfo;
     
-    const corners = [
-      game.renderer.camera.worldToScreen(worldPos.x, worldPos.y, 0, game.projection, playerParallax),
-      game.renderer.camera.worldToScreen(worldPos.x + CONFIG.cellSize, worldPos.y, 0, game.projection, playerParallax),
-      game.renderer.camera.worldToScreen(worldPos.x + CONFIG.cellSize, worldPos.y + CONFIG.cellSize, 0, game.projection, playerParallax),
-      game.renderer.camera.worldToScreen(worldPos.x, worldPos.y + CONFIG.cellSize, 0, game.projection, playerParallax)
-    ];
-    
-    ctx.save();
-    if (playerZOffset !== 0) {
-      ctx.translate(0, playerZOffset);
+    if (col >= 0 && col < CONFIG.mapSize && row >= 0 && row < CONFIG.mapSize) {
+      const playerZOffset = playerLayerInfo.zIndexOffset;
+      const worldPos = gridToWorld(col, row, CONFIG.cellSize);
+      
+      const corners = [
+        game.renderer.camera.worldToScreen(worldPos.x, worldPos.y, 0, game.projection, playerParallax),
+        game.renderer.camera.worldToScreen(worldPos.x + CONFIG.cellSize, worldPos.y, 0, game.projection, playerParallax),
+        game.renderer.camera.worldToScreen(worldPos.x + CONFIG.cellSize, worldPos.y + CONFIG.cellSize, 0, game.projection, playerParallax),
+        game.renderer.camera.worldToScreen(worldPos.x, worldPos.y + CONFIG.cellSize, 0, game.projection, playerParallax)
+      ];
+      
+      ctx.save();
+      if (playerZOffset !== 0) {
+        ctx.translate(0, playerZOffset);
+      }
+      
+      ctx.beginPath();
+      ctx.moveTo(corners[0].sx, corners[0].sy);
+      for (let i = 1; i < 4; i++) {
+        ctx.lineTo(corners[i].sx, corners[i].sy);
+      }
+      ctx.closePath();
+      ctx.strokeStyle = '#ffff00';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      
+      ctx.restore();
     }
-    
-    ctx.beginPath();
-    ctx.moveTo(corners[0].sx, corners[0].sy);
-    for (let i = 1; i < 4; i++) {
-      ctx.lineTo(corners[i].sx, corners[i].sy);
-    }
-    ctx.closePath();
-    ctx.strokeStyle = '#ffff00';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    
-    ctx.restore();
   }
 }
 

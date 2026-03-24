@@ -128,6 +128,12 @@ export class InputManager {
   public getMouseGridPosition(playerCol: number, playerRow: number): { col: number; row: number; layer: number } {
     const parallax = this.getPlayerLayerParallax(playerCol, playerRow);
     const world = this.screenToWorld(this.mouseState.screenX, this.mouseState.screenY, parallax);
+    
+    // Handle undefined or invalid world coordinates
+    if (!world || world.x === undefined || world.y === undefined) {
+      return { col: 0, row: 0, layer: 0 };
+    }
+    
     const grid = this.worldToGrid(world.x, world.y);
     const depth = grid.col + grid.row;
     const layer = Math.floor((depth / this.maxDepth) * this.layerCount);
