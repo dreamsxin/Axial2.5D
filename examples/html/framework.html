@@ -187,14 +187,6 @@ occlusionSystem.onOcclusionChange((entity, occlusions) => {
   }
 });
 
-// Initialize effect system wrapper (NEW - Phase 2)
-const effectWrapper = new EffectSystemWrapper(effectSystem, layerManager, {
-  layerCount: CONFIG.layerCount,
-  autoUpdate: true,
-  autoRender: true
-});
-effectWrapper.enable(game);
-
 // Track mouse position for debug display
 canvas.addEventListener('mousemove', e => {
   const rect = canvas.getBoundingClientRect();
@@ -213,10 +205,20 @@ game.renderHooks = {
     
     // Update occlusion system
     occlusionSystem.update();
+    
+    // Update effects
+    effectSystem.update(16);
   },
   
   onAfterLayers: (ctx) => {
-    // Effects are automatically rendered by EffectSystemWrapper
+    // Render effects for all layers
+    for (let i = 0; i < CONFIG.layerCount; i++) {
+      const layerInfo = layerManager.getLayerStats(i);
+      effectSystem.render(ctx, i, {
+        parallaxFactor: layerInfo.parallax,
+        alpha: layerInfo.alpha
+      });
+    }
   },
   
   onBeforePresent: (ctx) => {
@@ -227,6 +229,13 @@ game.renderHooks = {
     updateUI();
   }
 };
+
+// Initialize effect system wrapper (NEW - Phase 2) - for convenience methods
+const effectWrapper = new EffectSystemWrapper(effectSystem, layerManager, {
+  layerCount: CONFIG.layerCount,
+  autoUpdate: false, // Manual update in render hook
+  autoRender: false  // Manual render in render hook
+});
 
 // Start game loop
 game.start();
