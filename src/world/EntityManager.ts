@@ -299,7 +299,8 @@ export class EntityManager {
 
   /**
    * Cast occlusion shadow from a building
-   * In isometric view with camera at southwest, shadow extends northeast (direction: 1,1)
+   * In isometric view, camera looks from southeast to northwest
+   * Buildings occlude tiles to their northwest (direction: -1,-1)
    */
   private castOcclusionShadow(
     buildingCol: number,
@@ -313,9 +314,10 @@ export class EntityManager {
     // Formula: blockedSteps = floor(buildingHeight / tileSize)
     const blockedSteps = Math.floor(buildingHeight / tileSize);
 
-    // Occlusion direction: northeast (1, 1) in isometric view
-    const dirCol = 1;
-    const dirRow = 1;
+    // Occlusion direction: northwest (-1, -1) in isometric view
+    // Building at (5,5) occludes (4,4), (3,3), etc.
+    const dirCol = -1;
+    const dirRow = -1;
 
     // Cast shadow along the direction
     for (let k = 1; k <= blockedSteps; k++) {
