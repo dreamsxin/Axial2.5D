@@ -292,7 +292,9 @@ export class EntityManager {
     for (const entity of entities) {
       // Only buildings cast occlusion shadows (height >= 50)
       if (entity.height >= 50) {
-        this.castOcclusionShadow(entity.col, entity.row, entity.height, tileSize, mapWidth, mapHeight);
+        const width = (entity as any).width || tileSize;
+        const length = (entity as any).length || tileSize;
+        this.castOcclusionShadow(entity.col, entity.row, entity.height, tileSize, mapWidth, mapHeight, width, length);
       }
     }
   }
@@ -300,7 +302,7 @@ export class EntityManager {
   /**
    * Cast occlusion shadow from a building
    * In isometric view, camera looks from southeast to northwest
-   * Buildings occlude tiles to their northwest (direction: -1,-1)
+   * Buildings occlude tiles to their northwest, considering building width/length
    */
   private castOcclusionShadow(
     buildingCol: number,
@@ -308,30 +310,47 @@ export class EntityManager {
     buildingHeight: number,
     tileSize: number,
     mapWidth: number,
-    mapHeight: number
+    mapHeight: number,
+    buildingWidth: number = tileSize,
+    buildingLength: number = tileSize
   ): void {
-    // Calculate how many tiles the building occludes
-    // Formula: blockedSteps = floor(buildingHeight / tileSize)
+    // Calculate how many tiles the building occludes (based on height)
     const blockedSteps = Math.floor(buildingHeight / tileSize);
 
-    // Occlusion direction: northwest (-1, -1) in isometric view
-    // Building at (5,5) occludes (4,4), (3,3), etc.
-    const dirCol = -1;
-    const dirRow = -1;
+    // Calculate building footprint in grid cells
+    const buildingCols = Math.ceil(buildingWidth / tileSize);
+    const buildingRows = Math.ceil(buildingLength / tileSize);
 
-    // Cast shadow along the direction
-    for (let k = 1; k <= blockedSteps; k++) {
-      const shadowCol = buildingCol + dirCol * k;
-      const shadowRow = buildingRow + dirRow * k;
+    // For each cell occupied by the building, cast shadow northwest
+    for (let bc = 0; bc < buildingCols; bc++) {
+      for (let br = 0; br < buildingRows; br++) {
+        const baseCol = buildingCol - bc;
+        const baseRow = buildingRow - br;
 
-      // Check bounds
-      if (shadowCol >= 0 && shadowCol < mapWidth && shadowRow >= 0 && shadowRow < mapHeight) {
-        const key = `${shadowCol},${shadowRow}`;
-        const currentOcclusion = this.occlusionMap.get(key) || 0;
+        // Cast shadow in northwest direction (-1, -1)
+        // Also spread to adjacent northwest directions for wider buildings
+        const directions = [
+          { dc: -1, dr: -1 },  // Main northwest direction
+          { dc: -1, dr: 0 },   // West
+          { dc: 0, dr: -1 },   // North
+        ];
 
-        // Only update if this building casts a taller shadow
-        if (buildingHeight > currentOcclusion) {
-          this.occlusionMap.set(key, buildingHeight);
+        for (let k = 1; k <= blockedSteps; k++) {
+          for (const dir of directions) {
+            const shadowCol = baseCol + dir.dc * k;
+            const shadowRow = baseRow + dir.dr * k;
+
+            // Check bounds
+            if (shadowCol >= 0 && shadowCol < mapWidth && shadowRow >= 0 && shadowRow < mapHeight) {
+              const key = `${shadowCol},${shadowRow}`;
+              const currentOcclusion = this.occlusionMap.get(key) || 0;
+
+              // Only update if this building casts a taller shadow
+              if (buildingHeight > currentOcclusion) {
+                this.occlusionMap.set(key, buildingHeight);
+              }
+            }
+          }
         }
       }
     }

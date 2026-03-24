@@ -573,7 +573,7 @@ function drawDebug() {
     }
   }
   
-  // Draw occlusion shadow lines from buildings
+  // Draw occlusion shadow from buildings (considering width)
   ctx.strokeStyle = '#ff0000';
   ctx.lineWidth = 1;
   ctx.setLineDash([2, 2]);
@@ -581,42 +581,61 @@ function drawDebug() {
   for (const entity of entities) {
     if (entity.height >= 50) { // Building
       const blockedSteps = Math.floor(entity.height / CONFIG.cellSize);
-      const worldPos = gridToWorld(entity.col, entity.row, CONFIG.cellSize);
-      const buildingScreen = game.renderer.camera.worldToScreen(worldPos.x, worldPos.y, 0, game.projection, playerParallax);
+      const buildingCols = Math.ceil((entity as any).width / CONFIG.cellSize);
+      const buildingRows = Math.ceil((entity as any).length / CONFIG.cellSize);
       
-      // Draw shadow line to northwest
-      for (let k = 1; k <= blockedSteps; k++) {
-        const shadowCol = entity.col - k;
-        const shadowRow = entity.row - k;
-        
-        if (shadowCol >= 0 && shadowRow >= 0) {
-          const shadowWorld = gridToWorld(shadowCol, shadowRow, CONFIG.cellSize);
-          const shadowScreen = game.renderer.camera.worldToScreen(shadowWorld.x, shadowWorld.y, 0, game.projection, playerParallax);
+      const directions = [
+        { dc: -1, dr: -1 },  // Northwest
+        { dc: -1, dr: 0 },   // West
+        { dc: 0, dr: -1 },   // North
+      ];
+      
+      // For each cell occupied by building
+      for (let bc = 0; bc < buildingCols; bc++) {
+        for (let br = 0; br < buildingRows; br++) {
+          const baseCol = entity.col - bc;
+          const baseRow = entity.row - br;
+          const worldPos = gridToWorld(baseCol, baseRow, CONFIG.cellSize);
+          const baseScreen = game.renderer.camera.worldToScreen(worldPos.x, worldPos.y, 0, game.projection, playerParallax);
           
-          ctx.beginPath();
-          ctx.moveTo(buildingScreen.sx, buildingScreen.sy);
-          ctx.lineTo(shadowScreen.sx, shadowScreen.sy);
-          ctx.stroke();
-          
-          // Draw shadow tile highlight
-          const shadowCorners = [
-            game.renderer.camera.worldToScreen(shadowWorld.x, shadowWorld.y, 0, game.projection, playerParallax),
-            game.renderer.camera.worldToScreen(shadowWorld.x + CONFIG.cellSize, shadowWorld.y, 0, game.projection, playerParallax),
-            game.renderer.camera.worldToScreen(shadowWorld.x + CONFIG.cellSize, shadowWorld.y + CONFIG.cellSize, 0, game.projection, playerParallax),
-            game.renderer.camera.worldToScreen(shadowWorld.x, shadowWorld.y + CONFIG.cellSize, 0, game.projection, playerParallax)
-          ];
-          
-          ctx.save();
-          ctx.globalAlpha = 0.3;
-          ctx.beginPath();
-          ctx.moveTo(shadowCorners[0].sx, shadowCorners[0].sy);
-          for (let i = 1; i < 4; i++) {
-            ctx.lineTo(shadowCorners[i].sx, shadowCorners[i].sy);
+          // Draw shadow in all directions
+          for (let k = 1; k <= blockedSteps; k++) {
+            for (const dir of directions) {
+              const shadowCol = baseCol + dir.dc * k;
+              const shadowRow = baseRow + dir.dr * k;
+              
+              if (shadowCol >= 0 && shadowRow >= 0) {
+                const shadowWorld = gridToWorld(shadowCol, shadowRow, CONFIG.cellSize);
+                const shadowScreen = game.renderer.camera.worldToScreen(shadowWorld.x, shadowWorld.y, 0, game.projection, playerParallax);
+                
+                // Draw shadow line
+                ctx.beginPath();
+                ctx.moveTo(baseScreen.sx, baseScreen.sy);
+                ctx.lineTo(shadowScreen.sx, shadowScreen.sy);
+                ctx.stroke();
+                
+                // Draw shadow tile highlight (with dedup via Set)
+                const shadowCorners = [
+                  game.renderer.camera.worldToScreen(shadowWorld.x, shadowWorld.y, 0, game.projection, playerParallax),
+                  game.renderer.camera.worldToScreen(shadowWorld.x + CONFIG.cellSize, shadowWorld.y, 0, game.projection, playerParallax),
+                  game.renderer.camera.worldToScreen(shadowWorld.x + CONFIG.cellSize, shadowWorld.y + CONFIG.cellSize, 0, game.projection, playerParallax),
+                  game.renderer.camera.worldToScreen(shadowWorld.x, shadowWorld.y + CONFIG.cellSize, 0, game.projection, playerParallax)
+                ];
+                
+                ctx.save();
+                ctx.globalAlpha = 0.2;
+                ctx.beginPath();
+                ctx.moveTo(shadowCorners[0].sx, shadowCorners[0].sy);
+                for (let i = 1; i < 4; i++) {
+                  ctx.lineTo(shadowCorners[i].sx, shadowCorners[i].sy);
+                }
+                ctx.closePath();
+                ctx.fillStyle = '#ff0000';
+                ctx.fill();
+                ctx.restore();
+              }
+            }
           }
-          ctx.closePath();
-          ctx.fillStyle = '#ff0000';
-          ctx.fill();
-          ctx.restore();
         }
       }
     }
