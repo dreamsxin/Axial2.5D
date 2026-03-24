@@ -523,7 +523,22 @@ function drawDebug() {
   ctx.fillText(`Player Layer: ${playerLayer} (parallax: ${(playerLayerInfo.parallax*100).toFixed(0)}%)`, 10, y); y += lineH;
   ctx.fillText(`Parallax Range: ${state.layerSettings.parallaxRange}`, 10, y); y += lineH;
   
-  // Highlight mouse tile (only if mouse has been tracked)
+  // Building info
+  y += 5;
+  ctx.fillStyle = '#ff0';
+  ctx.fillText('=== Buildings ===', 10, y); y += lineH;
+  ctx.fillStyle = '#0f0';
+  
+  const entities = game.entityManager.getAllEntities();
+  for (const entity of entities) {
+    const occlusionKey = `${entity.col},${entity.row}`;
+    const isBuilding = entity.height >= 50;
+    const prefix = isBuilding ? '🏢' : '👤';
+    const alphaInfo = isBuilding ? '' : ` (occlusion: ${Math.round(entity.occlusionAlpha * 100)}%)`;
+    ctx.fillText(`${prefix} ${entity.id}: (${entity.col},${entity.row}) h=${entity.height}${alphaInfo}`, 10, y); y += lineH;
+  }
+  
+  // Highlight mouse tile
   if (state.mouse.x !== undefined && state.mouse.y !== undefined) {
     const mouseInfo = game.inputManager.getMouseGridPosition(state.player.col, state.player.row);
     const { col, row } = mouseInfo;
@@ -557,6 +572,57 @@ function drawDebug() {
       ctx.restore();
     }
   }
+  
+  // Draw occlusion shadow lines from buildings
+  ctx.strokeStyle = '#ff0000';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([2, 2]);
+  
+  for (const entity of entities) {
+    if (entity.height >= 50) { // Building
+      const blockedSteps = Math.floor(entity.height / CONFIG.cellSize);
+      const worldPos = gridToWorld(entity.col, entity.row, CONFIG.cellSize);
+      const buildingScreen = game.renderer.camera.worldToScreen(worldPos.x, worldPos.y, 0, game.projection, playerParallax);
+      
+      // Draw shadow line to northwest
+      for (let k = 1; k <= blockedSteps; k++) {
+        const shadowCol = entity.col - k;
+        const shadowRow = entity.row - k;
+        
+        if (shadowCol >= 0 && shadowRow >= 0) {
+          const shadowWorld = gridToWorld(shadowCol, shadowRow, CONFIG.cellSize);
+          const shadowScreen = game.renderer.camera.worldToScreen(shadowWorld.x, shadowWorld.y, 0, game.projection, playerParallax);
+          
+          ctx.beginPath();
+          ctx.moveTo(buildingScreen.sx, buildingScreen.sy);
+          ctx.lineTo(shadowScreen.sx, shadowScreen.sy);
+          ctx.stroke();
+          
+          // Draw shadow tile highlight
+          const shadowCorners = [
+            game.renderer.camera.worldToScreen(shadowWorld.x, shadowWorld.y, 0, game.projection, playerParallax),
+            game.renderer.camera.worldToScreen(shadowWorld.x + CONFIG.cellSize, shadowWorld.y, 0, game.projection, playerParallax),
+            game.renderer.camera.worldToScreen(shadowWorld.x + CONFIG.cellSize, shadowWorld.y + CONFIG.cellSize, 0, game.projection, playerParallax),
+            game.renderer.camera.worldToScreen(shadowWorld.x, shadowWorld.y + CONFIG.cellSize, 0, game.projection, playerParallax)
+          ];
+          
+          ctx.save();
+          ctx.globalAlpha = 0.3;
+          ctx.beginPath();
+          ctx.moveTo(shadowCorners[0].sx, shadowCorners[0].sy);
+          for (let i = 1; i < 4; i++) {
+            ctx.lineTo(shadowCorners[i].sx, shadowCorners[i].sy);
+          }
+          ctx.closePath();
+          ctx.fillStyle = '#ff0000';
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+    }
+  }
+  
+  ctx.setLineDash([]);
 }
 
 function updateLayerList() {
