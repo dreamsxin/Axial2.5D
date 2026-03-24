@@ -202,7 +202,6 @@ export class EntityManager {
       layerCount?: number;
       maxDepth?: number;
       parallaxFactor?: number;
-      zIndexOffset?: number;
       wireframe?: boolean;
     }
   ): void {
@@ -210,15 +209,12 @@ export class EntityManager {
     const layerCount = options?.layerCount ?? 5;
     const maxDepth = options?.maxDepth ?? 2000;
     const parallaxFactor = options?.parallaxFactor ?? 1.0;
-    const zIndexOffset = options?.zIndexOffset ?? 0;
     const wireframe = options?.wireframe ?? false;
 
     ctx.save();
     
-    // Apply Z-axis offset
-    if (zIndexOffset !== 0) {
-      ctx.translate(0, -zIndexOffset);
-    }
+    // Note: Z-axis offset is applied by the caller (Game.renderDefault)
+    // Don't apply it here to avoid double-application
 
     // Get all entities and sort by depth
     const allEntities = this.getAllEntities().filter(e => e.visible !== false);

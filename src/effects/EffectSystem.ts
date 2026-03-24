@@ -100,13 +100,13 @@ export class EffectSystem {
 
   /**
    * Render effects for a specific layer
+   * Note: Caller should apply Z-axis offset before calling this
    */
   public render(
     ctx: CanvasRenderingContext2D,
     layerIndex: number,
     options?: {
       parallaxFactor?: number;
-      zIndexOffset?: number;
       alpha?: number;
     }
   ): void {
@@ -114,14 +114,9 @@ export class EffectSystem {
     if (effects.length === 0) return;
 
     const parallaxFactor = options?.parallaxFactor ?? 1.0;
-    const zIndexOffset = options?.zIndexOffset ?? 0;
     const layerAlpha = options?.alpha ?? 1.0;
 
     ctx.save();
-    
-    if (zIndexOffset !== 0) {
-      ctx.translate(0, -zIndexOffset);
-    }
 
     for (const effect of effects) {
       this.renderEffect(ctx, effect, parallaxFactor, layerAlpha);

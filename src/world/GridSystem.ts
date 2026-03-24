@@ -308,10 +308,8 @@ export class GridSystem {
 
     ctx.save();
     
-    // Apply Z-axis offset
-    if (zIndexOffset !== 0) {
-      ctx.translate(0, -zIndexOffset);
-    }
+    // Note: Z-axis offset is applied by the caller (Game.renderDefault)
+    // Don't apply it here to avoid double-application
 
     const tileColors: { [key: string]: string } = {
       'grass': '#4a7c4e',

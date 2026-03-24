@@ -326,18 +326,17 @@ export class Game {
       ctx.save();
       ctx.globalAlpha = alpha;
 
-      // Apply Z-axis offset
+      // Apply Z-axis offset for this layer
       if (zIndexOffset !== 0) {
         ctx.translate(0, -zIndexOffset);
       }
 
-      // Render ground tiles for this layer
+      // Render ground tiles for this layer (with grid lines if enabled)
       this.gridSystem.renderGround(ctx, camera, {
         layerIndex: layerIdx,
         layerCount,
         showGrid,
         parallaxFactor,
-        zIndexOffset: 0,
         maxDepth
       });
 
@@ -346,8 +345,7 @@ export class Game {
         layerIndex: layerIdx,
         layerCount,
         maxDepth,
-        parallaxFactor,
-        zIndexOffset: 0
+        parallaxFactor
       });
 
       ctx.restore();

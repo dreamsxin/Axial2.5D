@@ -409,16 +409,22 @@ game.render = function() {
   // Update effects
   effectSystem.update(16);
   
-  // Call original render
-  originalRender();
+  // Use framework's built-in layer rendering (includes grid, tiles, entities)
+  game.renderDefault({
+    layerCount: CONFIG.layerCount,
+    showGrid: state.showGrid,
+    foregroundAlpha: state.layerSettings.foregroundAlpha,
+    zIndexStep: state.layerSettings.zIndexStep,
+    parallaxRange: state.layerSettings.parallaxRange
+  });
   
-  // Render effects for each layer
+  // Render effects for each layer (clouds, etc.)
+  // Note: Z-axis offset already applied by game.renderDefault()
   const ctx = game.renderer.ctx;
   for (let i = 0; i < CONFIG.layerCount; i++) {
     const layerInfo = layerManager.getLayerStats(i);
     effectSystem.render(ctx, i, {
       parallaxFactor: layerInfo.parallax,
-      zIndexOffset: layerInfo.zIndexOffset,
       alpha: layerInfo.alpha
     });
   }
