@@ -316,8 +316,7 @@ export class EntityManager {
    * 
    * Example: Building at (3,9) h=65, w=90, l=90, tileSize=50
    * - Occupies: (3,9), (4,9), (3,10), (4,10) [2x2 grid cells]
-   * - Southeast corner: (4,10)
-   * - Occlusion: casts shadow northwest from occupied tiles
+   * - Occlusion: casts shadow northwest from each occupied tile
    */
   private calculateBuildingOcclusion(
     buildingCol: number,
@@ -336,64 +335,34 @@ export class EntityManager {
     // Calculate how many tiles the building occludes northwest
     const occlusionSteps = Math.floor(buildingHeight / tileSize);
 
-    // Collect all tiles that need occlusion calculation
-    const tilesToProcess: Set<string> = new Set();
-
-    // Step 1: Add all tiles occupied by the building (extending southeast)
-    // Building at (col,row) is the northwest corner, extends +col (east) and +row (south)
+    // For each tile occupied by the building, cast occlusion shadow
     for (let dc = 0; dc < colsOccupied; dc++) {
       for (let dr = 0; dr < rowsOccupied; dr++) {
         const col = buildingCol + dc;
         const row = buildingRow + dr;
+        
         if (col >= 0 && col < mapWidth && row >= 0 && row < mapHeight) {
-          tilesToProcess.add(`${col},${row}`);
-        }
-      }
-    }
+          // Cast shadow in 3 directions northwest (toward camera)
+          const directions = [
+            { dc: -1, dr: -1 },  // Northwest (diagonal)
+            { dc: -1, dr: 0 },   // West
+            { dc: 0, dr: -1 },   // North
+          ];
 
-    // Step 2: Add diagonal neighbor tiles (the "corner" tiles that affect occlusion)
-    // Southeast corner of building
-    const cornerCol = buildingCol + colsOccupied - 1;
-    const cornerRow = buildingRow + rowsOccupied - 1;
-    
-    // Add the 3 tiles around the southeast corner: corner, east of corner, south of corner
-    const neighborOffsets = [
-      { dc: 0, dr: 0 },   // The southeast corner itself
-      { dc: 1, dr: 0 },   // East of corner
-      { dc: 0, dr: 1 },   // South of corner
-    ];
+          for (let step = 0; step <= occlusionSteps; step++) {
+            for (const dir of directions) {
+              const shadowCol = col + dir.dc * step;
+              const shadowRow = row + dir.dr * step;
 
-    for (const offset of neighborOffsets) {
-      const col = cornerCol + offset.dc;
-      const row = cornerRow + offset.dr;
-      if (col >= 0 && col < mapWidth && row >= 0 && row < mapHeight) {
-        tilesToProcess.add(`${col},${row}`);
-      }
-    }
+              if (shadowCol >= 0 && shadowCol < mapWidth && shadowRow >= 0 && shadowRow < mapHeight) {
+                const shadowKey = `${shadowCol},${shadowRow}`;
+                const currentOcclusion = this.occlusionMap.get(shadowKey) || 0;
 
-    // Step 3: For each tile, cast occlusion shadow northwest
-    for (const key of tilesToProcess) {
-      const [col, row] = key.split(',').map(Number);
-      
-      // Cast shadow in 3 directions northwest (toward camera)
-      const directions = [
-        { dc: -1, dr: -1 },  // Northwest (diagonal)
-        { dc: -1, dr: 0 },   // West
-        { dc: 0, dr: -1 },   // North
-      ];
-
-      for (let step = 0; step <= occlusionSteps; step++) {
-        for (const dir of directions) {
-          const shadowCol = col + dir.dc * step;
-          const shadowRow = row + dir.dr * step;
-
-          if (shadowCol >= 0 && shadowCol < mapWidth && shadowRow >= 0 && shadowRow < mapHeight) {
-            const shadowKey = `${shadowCol},${shadowRow}`;
-            const currentOcclusion = this.occlusionMap.get(shadowKey) || 0;
-
-            // Update if this building casts a taller shadow
-            if (buildingHeight > currentOcclusion) {
-              this.occlusionMap.set(shadowKey, buildingHeight);
+                // Update if this building casts a taller shadow
+                if (buildingHeight > currentOcclusion) {
+                  this.occlusionMap.set(shadowKey, buildingHeight);
+                }
+              }
             }
           }
         }
