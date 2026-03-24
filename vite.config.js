@@ -10,12 +10,15 @@ export default defineConfig({
       name: 'Axial25D',
       fileName: 'axial25d',
     },
+    rollupOptions: {
+      external: ['canvas'],
+    },
   },
   server: {
     port: 3001,
     open: '/examples/html/framework.html',
   },
   optimizeDeps: {
-    include: [],
+    exclude: ['canvas'],
   },
 });
