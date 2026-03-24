@@ -96,6 +96,9 @@ const state = {
   fps: 0
 };
 
+// Cloud colors for Layer 1-3 (must be defined before regenerateClouds is called)
+const layerCloudColors = { 1: '#ff6b6b', 2: '#4ecdc4', 3: '#ffeaa7' };
+
 // ==================== Initialize Game ====================
 const canvas = document.getElementById('gameCanvas');
 
@@ -190,8 +193,6 @@ function setupMapTiles() {
 }
 
 // ==================== Cloud System ====================
-const layerCloudColors = { 1: '#ff6b6b', 2: '#4ecdc4', 3: '#ffeaa7' };
-
 function regenerateClouds() {
   // Layer 4: White clouds (foreground sky)
   state.clouds = [];
