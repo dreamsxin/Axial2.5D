@@ -164,6 +164,130 @@ export class IsoCamera {
   }
 
   /**
+   * Follow configuration options
+   */
+  public followTarget: {
+    worldX: number;
+    worldY: number;
+    worldZ: number;
+    parallaxFactor: number;
+    smoothness: number;  // 0-1, higher = smoother/slower
+    enabled: boolean;
+  } | null = null;
+
+  /**
+   * Make camera follow a world position with parallax awareness
+   * @param worldX - World X coordinate to follow
+   * @param worldY - World Y coordinate to follow (depth in isometric space)
+   * @param worldZ - World Z coordinate to follow (height)
+   * @param projection - Projection for coordinate conversion
+   * @param options - Follow options
+   * @param options.smoothness - Smoothing factor (0-1, default 0.9 = smooth, 0 = instant)
+   * @param options.parallaxFactor - Parallax factor for target layer (default 1.0)
+   * @param options.offsetX - Additional X offset in screen space
+   * @param options.offsetY - Additional Y offset in screen space
+   */
+  public follow(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+    projection: Projection,
+    options?: {
+      smoothness?: number;
+      parallaxFactor?: number;
+      offsetX?: number;
+      offsetY?: number;
+    }
+  ): void {
+    const smoothness = options?.smoothness ?? 0.9;
+    const parallaxFactor = options?.parallaxFactor ?? 1.0;
+    const offsetX = options?.offsetX ?? 0;
+    const offsetY = options?.offsetY ?? 0;
+
+    // Calculate target screen position
+    const screenPos = projection.worldToScreen(worldX, worldY, worldZ);
+    const scaledX = screenPos.sx * this.scale;
+    const scaledY = screenPos.sy * this.scale;
+
+    // Calculate target camera offset to center the target
+    const targetOffsetX = -scaledX + this.canvasWidth / 2 + offsetX;
+    const targetOffsetY = -scaledY + this.canvasHeight / 2 + offsetY;
+
+    // Adjust for parallax (target should be centered on its layer)
+    const parallaxAdjustedX = targetOffsetX / parallaxFactor;
+    const parallaxAdjustedY = targetOffsetY / parallaxFactor;
+
+    // Store follow target
+    this.followTarget = {
+      worldX,
+      worldY,
+      worldZ,
+      parallaxFactor,
+      smoothness,
+      enabled: true
+    };
+
+    // Apply smooth or instant movement
+    if (smoothness > 0 && smoothness < 1) {
+      // Smooth interpolation
+      this.offsetX += (parallaxAdjustedX - this.offsetX) * (1 - smoothness);
+      this.offsetY += (parallaxAdjustedY - this.offsetY) * (1 - smoothness);
+    } else {
+      // Instant snap
+      this.offsetX = parallaxAdjustedX;
+      this.offsetY = parallaxAdjustedY;
+    }
+  }
+
+  /**
+   * Update camera follow (call every frame)
+   * @param projection - Projection for coordinate conversion
+   * @param options - Optional override for follow parameters
+   */
+  public updateFollow(projection: Projection, options?: {
+    worldX?: number;
+    worldY?: number;
+    worldZ?: number;
+    parallaxFactor?: number;
+  }): void {
+    if (!this.followTarget || !this.followTarget.enabled) return;
+
+    // Use override values or stored values
+    const worldX = options?.worldX ?? this.followTarget.worldX;
+    const worldY = options?.worldY ?? this.followTarget.worldY;
+    const worldZ = options?.worldZ ?? this.followTarget.worldZ;
+    const parallaxFactor = options?.parallaxFactor ?? this.followTarget.parallaxFactor;
+
+    // Update stored position
+    this.followTarget.worldX = worldX;
+    this.followTarget.worldY = worldY;
+    this.followTarget.worldZ = worldZ;
+    this.followTarget.parallaxFactor = parallaxFactor;
+
+    // Apply follow
+    this.follow(worldX, worldY, worldZ, projection, {
+      smoothness: this.followTarget.smoothness,
+      parallaxFactor,
+      offsetX: 0,
+      offsetY: 0
+    });
+  }
+
+  /**
+   * Stop following
+   */
+  public stopFollowing(): void {
+    this.followTarget = null;
+  }
+
+  /**
+   * Check if camera is currently following a target
+   */
+  public isFollowing(): boolean {
+    return this.followTarget !== null && this.followTarget.enabled;
+  }
+
+  /**
    * Convert world coordinates to screen coordinates with camera transform and parallax
    * @param worldX - World X coordinate
    * @param worldY - World Y coordinate (depth in isometric space)

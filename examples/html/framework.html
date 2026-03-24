@@ -330,22 +330,24 @@ window.updateLayerSettings = () => {
 
 // ==================== Update & Render ====================
 function updateCamera() {
-  // Use framework's built-in camera follow (if available)
-  // For now, manual implementation
+  // Use framework's built-in camera follow
   const playerDepth = state.player.col + state.player.row;
   const playerLayer = layerManager.getLayerForDepth(playerDepth);
   const playerParallax = layerManager.calculateParallaxFactor(playerLayer);
   
   const worldPos = gridToWorld(state.player.col, state.player.row, CONFIG.cellSize);
-  const scale = game.renderer.camera.scale;
-  const COS_THETA = Math.cos(30 * Math.PI / 180);
-  const SIN_THETA = Math.sin(30 * Math.PI / 180);
   
-  const rawScreenX = (worldPos.x - worldPos.y) * COS_THETA * scale;
-  const rawScreenY = (worldPos.x + worldPos.y) * SIN_THETA * scale;
-  
-  game.renderer.camera.offsetX += (-rawScreenX / playerParallax - game.renderer.camera.offsetX) * 0.1;
-  game.renderer.camera.offsetY += (-rawScreenY / playerParallax - game.renderer.camera.offsetY) * 0.1;
+  // Simple follow with smoothness
+  game.renderer.camera.follow(
+    worldPos.x,
+    worldPos.y,
+    0,  // ground level
+    game.projection,
+    {
+      smoothness: 0.9,  // Higher = smoother/slower
+      parallaxFactor: playerParallax
+    }
+  );
 }
 
 // Override game's render to add effects
