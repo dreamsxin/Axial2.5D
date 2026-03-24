@@ -113,14 +113,16 @@ export class CameraController {
     // Get world position
     const worldPos = this.gridSystem.gridToWorld(entity.col, entity.row);
     
-    // Update camera follow
+    // Update camera follow - use smoothness 0 for first frame to snap to position
+    const smoothness = this.camera.isFollowing() ? (this.followConfig.smoothness ?? 0) : 0;
+    
     this.camera.follow(
       worldPos.x,
       0, // worldY (not used in 2.5D)
       0, // worldZ (ground level)
       this.projection,
       {
-        smoothness: this.followConfig.smoothness ?? 0,
+        smoothness,
         parallaxFactor,
         offsetX: this.followConfig.offsetX ?? 0,
         offsetY: this.followConfig.offsetY ?? 0

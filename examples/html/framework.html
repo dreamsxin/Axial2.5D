@@ -165,6 +165,9 @@ cameraController.follow({
   autoParallax: true
 });
 
+// Initial camera position (instant center on player)
+cameraController.centerOnEntity('player');
+
 // Track mouse position for debug display
 canvas.addEventListener('mousemove', e => {
   const rect = canvas.getBoundingClientRect();
