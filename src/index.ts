@@ -50,8 +50,7 @@ export { ResourceManager } from './resource/ResourceManager';
 // Utils
 export { EventBus } from './utils/EventBus';
 export * from './utils/IsoUtils';
-export { Logger, logger } from './utils/Logger';
-export type { LogLevel, LoggerConfig } from './utils/Logger';
+// Logger moved to ui/Logger (Phase 5)
 
 // Controllers
 export { PlayerController } from './controllers/PlayerController';
@@ -68,10 +67,18 @@ export type { EffectSystemWrapperConfig } from './systems/EffectSystemWrapper';
 // UI (Phase 3)
 export { UIDataBinder } from './ui/UIDataBinder';
 export type { BindingConfig, BindingUpdater, ValueProvider, ValueFormatter } from './ui/UIDataBinder';
+export { Logger } from './ui/Logger';
+export type { LogLevel, LoggerConfig } from './ui/Logger';
 
 // Debug (Phase 3)
 export { DebugRenderer } from './debug/DebugRenderer';
 export type { DebugTextConfig, DebugTileHighlightConfig, DebugLineConfig, DebugShapeConfig, DebugEntityBoundsConfig } from './debug/DebugRenderer';
+export { DebugPanel } from './debug/DebugPanel';
+export type { DebugPanelConfig } from './debug/DebugPanel';
+
+// Module System (Phase 5)
+export { ModuleManager } from './core/ModuleManager';
+export type { ModuleConfig, GameModules } from './core/ModuleManager';
 
 // Camera types
 export type { ScreenPoint3D, WorldPoint3D } from './core/IsoCamera';
