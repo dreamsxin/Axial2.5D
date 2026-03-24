@@ -231,7 +231,12 @@ export class EntityManager {
       })
       .sort((a, b) => a.depth - b.depth);
 
-    // Calculate occlusion for each entity before rendering
+    // Calculate occlusion map first (pre-computation based on buildings)
+    const tileSize = this.gridSystem.getTileSize().width;
+    const mapSize = this.gridSystem.getDimensions();
+    this.calculateOcclusionMap(allEntities, tileSize, mapSize.width, mapSize.height);
+
+    // Then calculate per-entity occlusion alpha
     this.calculateOcclusion(sortedEntities, maxDepth, layerCount);
 
     for (const entity of sortedEntities) {
@@ -258,8 +263,80 @@ export class EntityManager {
   }
 
   /**
-   * Calculate occlusion for entities based on building heights
-   * Entities behind taller buildings become semi-transparent
+   * Pre-calculate occlusion map based on building heights and view direction
+   * In isometric view (camera at southwest looking northeast), buildings occlude tiles to their northeast
+   */
+  private occlusionMap: Map<string, number> = new Map(); // "col,row" -> occluding height
+
+  /**
+   * Calculate occlusion map for all tiles
+   * Called once when entities change, then reused for rendering
+   */
+  public calculateOcclusionMap(
+    entities: Entity[],
+    tileSize: number = 50,
+    mapWidth: number = 20,
+    mapHeight: number = 20
+  ): void {
+    // Clear occlusion map
+    this.occlusionMap.clear();
+
+    // Initialize all tiles with 0 occlusion
+    for (let c = 0; c < mapWidth; c++) {
+      for (let r = 0; r < mapHeight; r++) {
+        this.occlusionMap.set(`${c},${r}`, 0);
+      }
+    }
+
+    // For each building, calculate occlusion shadow
+    for (const entity of entities) {
+      // Only buildings cast occlusion shadows (height >= 50)
+      if (entity.height >= 50) {
+        this.castOcclusionShadow(entity.col, entity.row, entity.height, tileSize, mapWidth, mapHeight);
+      }
+    }
+  }
+
+  /**
+   * Cast occlusion shadow from a building
+   * In isometric view with camera at southwest, shadow extends northeast (direction: 1,1)
+   */
+  private castOcclusionShadow(
+    buildingCol: number,
+    buildingRow: number,
+    buildingHeight: number,
+    tileSize: number,
+    mapWidth: number,
+    mapHeight: number
+  ): void {
+    // Calculate how many tiles the building occludes
+    // Formula: blockedSteps = floor(buildingHeight / tileSize)
+    const blockedSteps = Math.floor(buildingHeight / tileSize);
+
+    // Occlusion direction: northeast (1, 1) in isometric view
+    const dirCol = 1;
+    const dirRow = 1;
+
+    // Cast shadow along the direction
+    for (let k = 1; k <= blockedSteps; k++) {
+      const shadowCol = buildingCol + dirCol * k;
+      const shadowRow = buildingRow + dirRow * k;
+
+      // Check bounds
+      if (shadowCol >= 0 && shadowCol < mapWidth && shadowRow >= 0 && shadowRow < mapHeight) {
+        const key = `${shadowCol},${shadowRow}`;
+        const currentOcclusion = this.occlusionMap.get(key) || 0;
+
+        // Only update if this building casts a taller shadow
+        if (buildingHeight > currentOcclusion) {
+          this.occlusionMap.set(key, buildingHeight);
+        }
+      }
+    }
+  }
+
+  /**
+   * Calculate occlusion for entities based on pre-computed occlusion map
    */
   private calculateOcclusion(
     entities: Entity[],
@@ -271,75 +348,26 @@ export class EntityManager {
       entity.occlusionAlpha = 1.0;
     }
 
-    // For each character entity, check if it's occluded by taller buildings
+    // For each character entity, check occlusion from the map
     for (const entity of entities) {
       // Only calculate occlusion for characters (not buildings)
-      if (entity.height < 50) { // Assume characters are < 50 units tall
-        const occluders = this.findOccludingBuildings(entity, entities);
-        if (occluders.length > 0) {
-          // Calculate occlusion based on how much the building blocks the character
-          entity.occlusionAlpha = this.calculateOcclusionAlpha(entity, occluders);
+      if (entity.height < 50) {
+        const key = `${entity.col},${entity.row}`;
+        const occludingHeight = this.occlusionMap.get(key) || 0;
+
+        // If there's an occluding building taller than the character
+        if (occludingHeight > entity.height) {
+          // Calculate transparency based on height difference
+          // Larger difference = more transparent
+          const heightDiff = occludingHeight - entity.height;
+          const maxDiff = 100; // Max height difference for full occlusion
+
+          // Map height difference to alpha: 0.3 (fully occluded) to 1.0 (not occluded)
+          const occlusionFactor = Math.min(1.0, heightDiff / maxDiff);
+          entity.occlusionAlpha = 1.0 - (occlusionFactor * 0.7); // Range: 0.3 to 1.0
         }
       }
     }
-  }
-
-  /**
-   * Find buildings that occlude the given entity
-   */
-  private findOccludingBuildings(
-    entity: Entity,
-    allEntities: Entity[]
-  ): Entity[] {
-    const occluders: Entity[] = [];
-    const entityDepth = entity.col + entity.row;
-
-    for (const other of allEntities) {
-      if (other === entity) continue;
-      
-      // Only consider taller buildings that are in front (closer to camera)
-      // In isometric view, lower col+row = closer to camera
-      const otherDepth = other.col + other.row;
-      
-      // Building is in front and taller
-      if (otherDepth < entityDepth && other.height > entity.height + 20) {
-        // Check if building is in a position that could occlude
-        const colDiff = Math.abs(other.col - entity.col);
-        const rowDiff = Math.abs(other.row - entity.row);
-        
-        // Simple proximity check - adjust threshold as needed
-        if (colDiff <= 2 && rowDiff <= 2) {
-          occluders.push(other);
-        }
-      }
-    }
-
-    return occluders;
-  }
-
-  /**
-   * Calculate occlusion alpha based on occluding buildings
-   * Returns a value between 0.3 (heavily occluded) and 1.0 (not occluded)
-   */
-  private calculateOcclusionAlpha(
-    entity: Entity,
-    occluders: Entity[]
-  ): number {
-    if (occluders.length === 0) return 1.0;
-
-    // Find the closest/tallest occluder
-    let maxOcclusion = 0;
-    for (const occluder of occluders) {
-      const depthDiff = (entity.col + entity.row) - (occluder.col + occluder.row);
-      const heightDiff = occluder.height - entity.height;
-      
-      // Occlusion strength based on height difference and proximity
-      const occlusionStrength = Math.min(1.0, heightDiff / 100) * Math.max(0, 1 - depthDiff * 0.3);
-      maxOcclusion = Math.max(maxOcclusion, occlusionStrength);
-    }
-
-    // Map occlusion to alpha: 0.3 (fully occluded) to 1.0 (not occluded)
-    return 1.0 - (maxOcclusion * 0.7);
   }
 
   /**
