@@ -66,5 +66,13 @@ export type { OcclusionData, OcclusionCallback, OcclusionSystemConfig } from './
 export { EffectSystemWrapper } from './systems/EffectSystemWrapper';
 export type { EffectSystemWrapperConfig } from './systems/EffectSystemWrapper';
 
+// UI (Phase 3)
+export { UIDataBinder } from './ui/UIDataBinder';
+export type { BindingConfig, BindingUpdater, ValueProvider, ValueFormatter } from './ui/UIDataBinder';
+
+// Debug (Phase 3)
+export { DebugRenderer } from './debug/DebugRenderer';
+export type { DebugTextConfig, DebugTileHighlightConfig, DebugLineConfig, DebugShapeConfig, DebugEntityBoundsConfig } from './debug/DebugRenderer';
+
 // Camera types
 export type { ScreenPoint3D, WorldPoint3D } from './core/IsoCamera';

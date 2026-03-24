@@ -70,6 +70,7 @@
 import { 
   Game, LayerManager, EffectSystem, CameraController,
   OcclusionSystem, EffectSystemWrapper,
+  UIDataBinder, DebugRenderer,
   gridToWorld, worldToGrid 
 } from '../../src/index.ts';
 
@@ -197,7 +198,7 @@ canvas.addEventListener('mousemove', e => {
 // Setup event handlers
 setupEventHandlers();
 
-// Setup render hooks (NEW - Phase 1 & 2)
+// Setup render hooks (NEW - Phase 1, 2 & 3)
 game.renderHooks = {
   onAfterClear: (ctx) => {
     // Update camera follow
@@ -208,6 +209,9 @@ game.renderHooks = {
     
     // Update effects
     effectSystem.update(16);
+    
+    // Update UI bindings
+    uiBinder.updateAll();
   },
   
   onAfterLayers: (ctx) => {
@@ -219,22 +223,69 @@ game.renderHooks = {
         alpha: layerInfo.alpha
       });
     }
+    
+    // Render debug items
+    if (state.showDebug) {
+      debugRenderer.render(ctx, game.gridSystem, game.renderer.camera, game.projection);
+    }
   },
   
   onBeforePresent: (ctx) => {
-    // Draw debug info
-    drawDebug();
-    
-    // Update UI
-    updateUI();
+    // Update layer list
+    updateLayerList();
   }
 };
 
 // Initialize effect system wrapper (NEW - Phase 2) - for convenience methods
 const effectWrapper = new EffectSystemWrapper(effectSystem, layerManager, {
   layerCount: CONFIG.layerCount,
-  autoUpdate: false, // Manual update in render hook
-  autoRender: false  // Manual render in render hook
+  autoUpdate: false,
+  autoRender: false
+});
+
+// Initialize UI data binder (NEW - Phase 3)
+const uiBinder = new UIDataBinder();
+
+// Initialize debug renderer (NEW - Phase 3)
+const debugRenderer = new DebugRenderer();
+
+// Setup UI bindings (NEW - Phase 3)
+uiBinder.bindText('fps', () => state.fps);
+uiBinder.bindText('layerCount', () => CONFIG.layerCount);
+uiBinder.bindText('playerPos', () => {
+  const player = game.entityManager.getEntity('player');
+  return player ? `${player.col}, ${player.row}` : '0, 0';
+});
+uiBinder.bind('occlusionAlpha', (el) => {
+  const player = game.entityManager.getEntity('player');
+  if (!player) return;
+  
+  const occlusions = occlusionSystem.getOccludingBuildings(player);
+  const isOccluded = occlusions.some(o => o.height > player.height);
+  
+  if (isOccluded) {
+    el.textContent = `OCCLUDED by ${occlusions.map(o => o.buildingId).join(', ')}`;
+    el.style.color = '#4ecdc4';
+  } else {
+    el.textContent = 'VISIBLE (normal)';
+    el.style.color = '#4ad97a';
+  }
+});
+
+// Setup debug renderer (NEW - Phase 3)
+debugRenderer.addText('info', {
+  getText: () => `FPS: ${state.fps} | Entities: ${game.entityManager.getCount()}`,
+  x: 10, y: 20, color: '#0f0'
+});
+
+debugRenderer.addTileHighlight('mouse', {
+  getTile: () => {
+    if (state.mouse.x === undefined || state.mouse.y === undefined) return null;
+    const mouseInfo = game.inputManager.getMouseGridPosition(state.player.col, state.player.row);
+    return mouseInfo;
+  },
+  color: '#ff0',
+  lineWidth: 2
 });
 
 // Start game loop
@@ -460,52 +511,18 @@ window.updateLayerSettings = () => {
 // - game.renderHooks (inject custom logic into render pipeline)
 // See initialization code above for details.
 
-function updateUI() {
-  document.getElementById('fps').textContent = state.fps;
-  document.getElementById('layerCount').textContent = CONFIG.layerCount;
-  document.getElementById('playerPos').textContent = `${state.player.col}, ${state.player.row}`;
-  
-  // Update occlusion status display
-  const playerEntity = game.entityManager.getEntity('player');
-  if (playerEntity) {
-    const occlusionEl = document.getElementById('occlusionAlpha');
-    if (occlusionEl) {
-      // Check all buildings occluding player
-      const playerKey = `${playerEntity.col},${playerEntity.row}`;
-      
-      // Buildings that occlude player (h > 40)
-      const occludingBuildings = [];
-      if (playerKey === '6,6') {
-        // tower1 at (5,5) h=120, occlusionSteps=2
-        // (6,6) is at southeast, tower1 occludes northwest... need to check
-        // Actually tower1 at (5,5) occupies (5,5)(6,5)(5,6)(6,6) for w=80
-        // From (6,6) casts shadow to (5,5), (4,4), etc - NOT (6,6) itself
-        // Let me recalculate...
-        occludingBuildings.push('tower1 (5,5) h=120');
-        occludingBuildings.push('tower2 (7,7) h=100');
-      }
-      
-      if (occludingBuildings.length > 0) {
-        occlusionEl.textContent = `OCCLUDED by: ${occludingBuildings.join(', ')}`;
-        occlusionEl.style.color = '#4ecdc4';
-      } else {
-        occlusionEl.textContent = 'VISIBLE (normal)';
-        occlusionEl.style.color = '#4ad97a';
-      }
-    }
-  }
-  
-  updateLayerList();
-}
+// NOTE: UI updates now handled by UIDataBinder (Phase 3)
+// Bindings are set up in initialization code above.
+// updateUI() removed - replaced with uiBinder.updateAll() in render hook.
 
 // ==================== Debug Display ====================
+// NOTE: Debug rendering now handled by DebugRenderer (Phase 3)
+// drawDebug() removed - replaced with debugRenderer.render() in render hook.
+// Keep this function for legacy compatibility if needed.
 function drawDebug() {
-  if (!state.showDebug) return;
-  
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#0f0';
-  ctx.font = '12px monospace';
-  let y = 20, lineH = 16;
+  // Legacy debug rendering - can be removed if not needed
+  // DebugRenderer handles: text overlays, tile highlights, lines, shapes
+}
   
   // Calculate player layer info once
   const playerDepth = state.player.col + state.player.row;
