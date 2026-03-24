@@ -89,7 +89,8 @@ const state = {
     zIndexStep: 30,
     parallaxRange: 0.7
   },
-  clouds: [],
+  clouds: [],         // Layer 4 white clouds
+  layerClouds: {},    // Layer 1-3 colored clouds
   lastTime: 0,
   frameCount: 0,
   fps: 0
@@ -189,7 +190,10 @@ function setupMapTiles() {
 }
 
 // ==================== Cloud System ====================
+const layerCloudColors = { 1: '#ff6b6b', 2: '#4ecdc4', 3: '#ffeaa7' };
+
 function regenerateClouds() {
+  // Layer 4: White clouds (foreground sky)
   state.clouds = [];
   const cloudCount = 6 + Math.floor(Math.random() * 5);
   
@@ -202,7 +206,25 @@ function regenerateClouds() {
     });
   }
   
-  log(`☁️ Regenerated ${state.clouds.length} clouds`, 'success');
+  // Layer 1-3: Colored clouds for depth comparison
+  for (let layerIdx = 1; layerIdx <= 3; layerIdx++) {
+    state.layerClouds[layerIdx] = [];
+    const count = 1 + Math.floor(Math.random() * 2);  // 1-2 clouds per layer
+    for (let i = 0; i < count; i++) {
+      const c = Math.floor(Math.random() * (CONFIG.mapSize - 2)) + 1;
+      const r = Math.floor(Math.random() * (CONFIG.mapSize - 2)) + 1;
+      state.layerClouds[layerIdx].push({
+        col: c,
+        row: r,
+        size: 35 + Math.random() * 35,
+        offsetY: -40 - Math.random() * 80,
+        color: layerCloudColors[layerIdx]
+      });
+    }
+  }
+  
+  const total = state.clouds.length + Object.keys(state.layerClouds).reduce((sum, k) => sum + state.layerClouds[k].length, 0);
+  log(`☁️ Regenerated ${total} clouds (${state.clouds.length} white + ${total - state.clouds.length} colored)`, 'success');
 }
 
 // ==================== Game Loop ====================
@@ -288,49 +310,54 @@ function render() {
 function drawClouds() {
   const ctx = canvas.getContext('2d');
   const { layerCount } = CONFIG;
-  const layerIdx = layerCount - 1; // Foreground layer (Layer 4)
   
-  const parallaxFactor = 0.3 + (layerIdx / (layerCount - 1)) * state.layerSettings.parallaxRange;
-  const alpha = 1.0 - (1.0 - state.layerSettings.foregroundAlpha) * (layerIdx / (layerCount - 1));
-  const zIndexOffset = layerIdx * state.layerSettings.zIndexStep;
-  
-  ctx.save();
-  ctx.globalAlpha = alpha * 0.9;
-  
-  // Apply Z-axis offset (same as layer rendering)
-  if (zIndexOffset !== 0) {
-    ctx.translate(0, -zIndexOffset);
-  }
-  
-  for (const cloud of state.clouds) {
-    const worldPos = gridToWorld(cloud.col, cloud.row, CONFIG.cellSize);
-    const screen = game.renderer.camera.worldToScreen(
-      worldPos.x,
-      worldPos.y,
-      cloud.offsetY,
-      game.projection,
-      parallaxFactor
-    );
+  // Draw clouds for each layer (Layer 1-4)
+  for (let layerIdx = 1; layerIdx < layerCount; layerIdx++) {
+    const parallaxFactor = 0.3 + (layerIdx / (layerCount - 1)) * state.layerSettings.parallaxRange;
+    const alpha = 1.0 - (1.0 - state.layerSettings.foregroundAlpha) * (layerIdx / (layerCount - 1));
+    const zIndexOffset = layerIdx * state.layerSettings.zIndexStep;
     
-    const size = cloud.size;
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    // Main cloud body (3 overlapping circles like standalone.html)
-    ctx.arc(screen.sx, screen.sy, size * 0.5, 0, Math.PI * 2);
-    ctx.arc(screen.sx - size * 0.4, screen.sy + size * 0.1, size * 0.4, 0, Math.PI * 2);
-    ctx.arc(screen.sx + size * 0.4, screen.sy + size * 0.1, size * 0.4, 0, Math.PI * 2);
-    ctx.arc(screen.sx - size * 0.2, screen.sy - size * 0.3, size * 0.35, 0, Math.PI * 2);
-    ctx.arc(screen.sx + size * 0.2, screen.sy - size * 0.3, size * 0.35, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.9;
     
-    // Subtle shadow
-    ctx.fillStyle = 'rgba(200, 200, 200, 0.3)';
-    ctx.beginPath();
-    ctx.arc(screen.sx, screen.sy + size * 0.3, size * 0.4, 0, Math.PI * 2);
-    ctx.fill();
+    // Apply Z-axis offset
+    if (zIndexOffset !== 0) {
+      ctx.translate(0, -zIndexOffset);
+    }
+    
+    // Get clouds for this layer
+    const clouds = layerIdx === layerCount - 1 ? state.clouds : (state.layerClouds[layerIdx] || []);
+    
+    for (const cloud of clouds) {
+      const worldPos = gridToWorld(cloud.col, cloud.row, CONFIG.cellSize);
+      const screen = game.renderer.camera.worldToScreen(
+        worldPos.x,
+        worldPos.y,
+        cloud.offsetY,
+        game.projection,
+        parallaxFactor
+      );
+      
+      const size = cloud.size;
+      ctx.fillStyle = cloud.color || '#ffffff';  // Use cloud's color or default white
+      ctx.beginPath();
+      // Main cloud body (5 overlapping circles like standalone.html)
+      ctx.arc(screen.sx, screen.sy, size * 0.5, 0, Math.PI * 2);
+      ctx.arc(screen.sx - size * 0.4, screen.sy + size * 0.1, size * 0.4, 0, Math.PI * 2);
+      ctx.arc(screen.sx + size * 0.4, screen.sy + size * 0.1, size * 0.4, 0, Math.PI * 2);
+      ctx.arc(screen.sx - size * 0.2, screen.sy - size * 0.3, size * 0.35, 0, Math.PI * 2);
+      ctx.arc(screen.sx + size * 0.2, screen.sy - size * 0.3, size * 0.35, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Subtle shadow
+      ctx.fillStyle = 'rgba(200, 200, 200, 0.3)';
+      ctx.beginPath();
+      ctx.arc(screen.sx, screen.sy + size * 0.3, size * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    
+    ctx.restore();
   }
-  
-  ctx.restore();
 }
 
 function drawDebug() {
@@ -420,8 +447,11 @@ function updateLayerList() {
     layerStats[layer].entities++;
   }
   
-  // Add cloud count to layer stats
+  // Add cloud count to layer stats (Layer 4 + Layer 1-3)
   layerStats[layerCount - 1].clouds = state.clouds.length;
+  for (let i = 1; i <= 3; i++) {
+    layerStats[i].clouds = state.layerClouds[i] ? state.layerClouds[i].length : 0;
+  }
   
   layerList.innerHTML = '';
   // Display from top (foreground) to bottom (background): Layer 4 → Layer 0
