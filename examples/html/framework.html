@@ -69,6 +69,7 @@
 <script type="module">
 import { 
   Game, LayerManager, EffectSystem, CameraController,
+  OcclusionSystem, EffectSystemWrapper,
   gridToWorld, worldToGrid 
 } from '../../src/index.ts';
 
@@ -168,6 +169,32 @@ cameraController.follow({
 // Initial camera position (instant center on player)
 cameraController.centerOnEntity('player');
 
+// Initialize occlusion system (NEW - Phase 2)
+const occlusionSystem = new OcclusionSystem({
+  entityManager: game.entityManager,
+  gridSystem: game.gridSystem,
+  tileSize: CONFIG.cellSize
+});
+
+// Register with game for automatic integration
+game.occlusionSystem = occlusionSystem;
+
+// Listen for occlusion changes
+occlusionSystem.onOcclusionChange((entity, occlusions) => {
+  if (entity.id === 'player') {
+    const isOccluded = occlusions.some(o => o.height > entity.height);
+    log(`Player occlusion: ${isOccluded ? 'OCCLUDED by ' + occlusions.map(o => o.buildingId).join(', ') : 'VISIBLE'}`, 'info');
+  }
+});
+
+// Initialize effect system wrapper (NEW - Phase 2)
+const effectWrapper = new EffectSystemWrapper(effectSystem, layerManager, {
+  layerCount: CONFIG.layerCount,
+  autoUpdate: true,
+  autoRender: true
+});
+effectWrapper.enable(game);
+
 // Track mouse position for debug display
 canvas.addEventListener('mousemove', e => {
   const rect = canvas.getBoundingClientRect();
@@ -178,24 +205,18 @@ canvas.addEventListener('mousemove', e => {
 // Setup event handlers
 setupEventHandlers();
 
-// Setup render hooks (NEW - Phase 1)
-// Instead of overriding game.render, use hooks to inject custom logic
+// Setup render hooks (NEW - Phase 1 & 2)
 game.renderHooks = {
   onAfterClear: (ctx) => {
-    // Update camera follow (auto-calculates parallax)
+    // Update camera follow
     cameraController.update();
+    
+    // Update occlusion system
+    occlusionSystem.update();
   },
   
   onAfterLayers: (ctx) => {
-    // Render effects after layers
-    effectSystem.update(16);
-    for (let i = 0; i < CONFIG.layerCount; i++) {
-      const layerInfo = layerManager.getLayerStats(i);
-      effectSystem.render(ctx, i, {
-        parallaxFactor: layerInfo.parallax,
-        alpha: layerInfo.alpha
-      });
-    }
+    // Effects are automatically rendered by EffectSystemWrapper
   },
   
   onBeforePresent: (ctx) => {

@@ -191,12 +191,14 @@ export class EntityManager {
   }
 
   /**
-   * Render entities with proper occlusion handling
+   * Render entities with optional occlusion handling
    * 
-   * Occlusion logic:
+   * Occlusion logic (when occlusionSystem is provided):
    * - Characters in occluded tiles are drawn FIRST (opaque)
    * - Buildings that occlude characters are drawn SEMI-TRANSPARENT on top
    * - This ensures characters are visible through buildings
+   * 
+   * If occlusionSystem is NOT provided, uses legacy internal occlusion map
    */
   public render(
     ctx: CanvasRenderingContext2D,
@@ -206,6 +208,7 @@ export class EntityManager {
       maxDepth?: number;
       parallaxFactor?: number;
       wireframe?: boolean;
+      occlusionSystem?: any; // OcclusionSystem from systems/OcclusionSystem
     }
   ): void {
     const layerIndex = options?.layerIndex;
@@ -213,6 +216,7 @@ export class EntityManager {
     const maxDepth = options?.maxDepth ?? 2000;
     const parallaxFactor = options?.parallaxFactor ?? 1.0;
     const wireframe = options?.wireframe ?? false;
+    const occlusionSystem = options?.occlusionSystem;
 
     ctx.save();
 
@@ -229,74 +233,134 @@ export class EntityManager {
       return true;
     });
 
-    // Calculate occlusion map
-    const tileSize = this.gridSystem.getTileSize().width;
-    const mapSize = this.gridSystem.getDimensions();
-    this.calculateOcclusionMap(layerEntities, tileSize, mapSize.width, mapSize.height);
+    // Use provided OcclusionSystem or calculate internal occlusion map
+    if (occlusionSystem) {
+      // Use OcclusionSystem for occlusion queries
+      this.renderWithOcclusionSystem(ctx, layerEntities, parallaxFactor, wireframe, occlusionSystem);
+    } else {
+      // Legacy: calculate internal occlusion map
+      const tileSize = this.gridSystem.getTileSize().width;
+      const mapSize = this.gridSystem.getDimensions();
+      this.calculateOcclusionMap(layerEntities, tileSize, mapSize.width, mapSize.height);
+      this.renderWithInternalOcclusion(ctx, layerEntities, parallaxFactor, wireframe);
+    }
 
-    // Separate characters and buildings
-    const characters = layerEntities.filter(e => e.height < 50);
-    const buildings = layerEntities.filter(e => e.height >= 50);
+    ctx.restore();
+  }
 
-    // Sort all entities by depth for proper rendering order
-    const sortedEntities = layerEntities.sort((a, b) => a.depth - b.depth);
+  /**
+   * Render using OcclusionSystem (Phase 2)
+   */
+  private renderWithOcclusionSystem(
+    ctx: CanvasRenderingContext2D,
+    entities: Entity[],
+    parallaxFactor: number,
+    wireframe: boolean,
+    occlusionSystem: any
+  ): void {
+    const sortedEntities = entities.sort((a, b) => a.depth - b.depth);
 
     // Determine which buildings should be semi-transparent
     const semiTransparentBuildings = new Set<string>();
-    for (const char of characters) {
-      const key = `${char.col},${char.row}`;
-      const occlusions = this.occlusionMap.get(key) || [];
+    for (const char of entities) {
+      if (char.height >= 50) continue;
       
-      // Check all buildings that occlude this character
-      for (const occ of occlusions) {
-        if (occ.height > char.height) {
-          // This building occludes the character - mark as semi-transparent
-          semiTransparentBuildings.add(occ.buildingId);
+      if (occlusionSystem.isOccluded(char)) {
+        const occlusions = occlusionSystem.getOccludingBuildings(char);
+        for (const occ of occlusions) {
+          if (occ.height > char.height) {
+            semiTransparentBuildings.add(occ.buildingId);
+          }
         }
       }
     }
 
-    // First pass: Draw characters in occluded tiles (opaque)
+    // First pass: Draw occluded characters (opaque)
     for (const entity of sortedEntities) {
-      if (entity.height >= 50) continue; // Skip buildings in first pass
-
-      const key = `${entity.col},${entity.row}`;
-      const occlusions = this.occlusionMap.get(key) || [];
+      if (entity.height >= 50) continue;
+      if (!occlusionSystem.isOccluded(entity)) continue;
       
-      // Check if character is occluded by any building
-      const isOccluded = occlusions.some(occ => occ.height > entity.height);
-      
-      if (isOccluded) {
-        this.drawEntity(ctx, entity, parallaxFactor, wireframe, 1.0); // Always opaque
-      }
+      this.drawEntity(ctx, entity, parallaxFactor, wireframe, 1.0);
     }
 
-    // Second pass: Draw all buildings (semi-transparent if occluding a character)
+    // Second pass: Draw buildings (semi-transparent if occluding)
     for (const entity of sortedEntities) {
-      if (entity.height < 50) continue; // Skip characters
-
+      if (entity.height < 50) continue;
+      
       const isSemiTransparent = semiTransparentBuildings.has(entity.id);
       const alpha = isSemiTransparent ? 0.5 : 1.0;
       this.drawEntity(ctx, entity, parallaxFactor, wireframe, alpha);
     }
 
-    // Third pass: Draw characters NOT in occluded tiles (normal rendering)
+    // Third pass: Draw non-occluded characters (normal)
     for (const entity of sortedEntities) {
-      if (entity.height >= 50) continue; // Skip buildings
+      if (entity.height >= 50) continue;
+      if (occlusionSystem.isOccluded(entity)) continue;
+      
+      this.drawEntity(ctx, entity, parallaxFactor, wireframe, 1.0);
+    }
+  }
 
-      const key = `${entity.col},${entity.row}`;
+  /**
+   * Render using internal occlusion map (legacy)
+   */
+  private renderWithInternalOcclusion(
+    ctx: CanvasRenderingContext2D,
+    entities: Entity[],
+    parallaxFactor: number,
+    wireframe: boolean
+  ): void {
+    const sortedEntities = entities.sort((a, b) => a.depth - b.depth);
+
+    // Determine which buildings should be semi-transparent
+    const semiTransparentBuildings = new Set<string>();
+    for (const char of entities) {
+      if (char.height >= 50) continue;
+      
+      const key = `${char.col},${char.row}`;
       const occlusions = this.occlusionMap.get(key) || [];
       
-      // Check if character is occluded by any building
+      for (const occ of occlusions) {
+        if (occ.height > char.height) {
+          semiTransparentBuildings.add(occ.buildingId);
+        }
+      }
+    }
+
+    // First pass: Draw occluded characters (opaque)
+    for (const entity of sortedEntities) {
+      if (entity.height >= 50) continue;
+      
+      const key = `${entity.col},${entity.row}`;
+      const occlusions = this.occlusionMap.get(key) || [];
       const isOccluded = occlusions.some(occ => occ.height > entity.height);
       
-      // Only draw if NOT occluded
-      if (!isOccluded) {
+      if (isOccluded) {
         this.drawEntity(ctx, entity, parallaxFactor, wireframe, 1.0);
       }
     }
 
-    ctx.restore();
+    // Second pass: Draw buildings (semi-transparent if occluding)
+    for (const entity of sortedEntities) {
+      if (entity.height < 50) continue;
+      
+      const isSemiTransparent = semiTransparentBuildings.has(entity.id);
+      const alpha = isSemiTransparent ? 0.5 : 1.0;
+      this.drawEntity(ctx, entity, parallaxFactor, wireframe, alpha);
+    }
+
+    // Third pass: Draw non-occluded characters (normal)
+    for (const entity of sortedEntities) {
+      if (entity.height >= 50) continue;
+      
+      const key = `${entity.col},${entity.row}`;
+      const occlusions = this.occlusionMap.get(key) || [];
+      const isOccluded = occlusions.some(occ => occ.height > entity.height);
+      
+      if (!isOccluded) {
+        this.drawEntity(ctx, entity, parallaxFactor, wireframe, 1.0);
+      }
+    }
   }
 
   /**

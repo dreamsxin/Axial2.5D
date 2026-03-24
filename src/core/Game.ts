@@ -53,6 +53,7 @@ export class Game {
   public debugSystem: DebugSystem;
   public sceneManager: SceneManager;
   public resourceManager: ResourceManager;
+  public occlusionSystem: any = null; // OcclusionSystem (Phase 2)
 
   private running: boolean = false;
   private lastTime: number = 0;
@@ -416,12 +417,13 @@ export class Game {
         maxDepth
       });
 
-      // Render entities for this layer
+      // Render entities for this layer (with occlusion support)
       this.entityManager.render(ctx, {
         layerIndex: layerIdx,
         layerCount,
         maxDepth,
-        parallaxFactor
+        parallaxFactor,
+        occlusionSystem: this.occlusionSystem
       });
 
       ctx.restore();
