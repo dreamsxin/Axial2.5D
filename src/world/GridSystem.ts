@@ -334,26 +334,23 @@ export class GridSystem {
         // Only render tiles for this layer
         if (tileLayer !== layerIndex) continue;
         
+        // Get tile center in world coordinates
         const worldPos = this.gridToWorld(col, row);
-        const screen = camera.worldToScreen(
-          worldPos.x,
-          worldPos.z,
-          tile.height,
-          this.projection,
-          parallaxFactor
-        );
+        
+        // Calculate 4 corners in world coordinates (like standalone.html)
+        const corners = [
+          { x: worldPos.x, y: worldPos.z },                     // top-left
+          { x: worldPos.x + this.tileW, y: worldPos.z },        // top-right
+          { x: worldPos.x + this.tileW, y: worldPos.z + this.tileH }, // bottom-right
+          { x: worldPos.x, y: worldPos.z + this.tileH }         // bottom-left
+        ].map(c => camera.worldToScreen(c.x, c.y, tile.height, this.projection, parallaxFactor));
 
-        const w = this.tileW;
-        const h = this.tileH;
-        const x = screen.sx;
-        const y = screen.sy;
-
-        // Draw diamond-shaped tile
+        // Draw diamond-shaped tile using projected corners
         ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x + w / 2, y + h / 2);
-        ctx.lineTo(x, y + h);
-        ctx.lineTo(x - w / 2, y + h / 2);
+        ctx.moveTo(corners[0].sx, corners[0].sy);
+        for (let i = 1; i < 4; i++) {
+          ctx.lineTo(corners[i].sx, corners[i].sy);
+        }
         ctx.closePath();
 
         ctx.fillStyle = tileColors[tile.type] || '#4a4a4a';
