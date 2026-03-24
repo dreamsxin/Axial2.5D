@@ -353,9 +353,12 @@ function updateCamera() {
   );
 }
 
-// Override game's render to add effects
+// Override game's render to add effects and camera follow
 const originalRender = game.render.bind(game);
 game.render = function() {
+  // Update camera follow (must be called every frame)
+  updateCamera();
+  
   // Update effects
   effectSystem.update(16);
   
