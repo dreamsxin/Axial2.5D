@@ -395,33 +395,51 @@ function updateLayerList() {
   
   const { layerCount } = CONFIG;
   const mapSize = CONFIG.mapSize;
+  const LAYER_COLORS = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#ffeaa7'];
+  
+  // Calculate layer stats
+  const layerStats = {};
+  for (let i = 0; i < layerCount; i++) {
+    layerStats[i] = { tiles: 0, entities: 0 };
+  }
+  
+  // Count tiles per layer
+  for (let c = 0; c < mapSize; c++) {
+    for (let r = 0; r < mapSize; r++) {
+      const depth = c + r;
+      const layer = Math.floor((depth / 2000) * layerCount);
+      layerStats[layer].tiles++;
+    }
+  }
+  
+  // Count entities per layer
+  const entities = game.entityManager.getAllEntities();
+  for (const entity of entities) {
+    const depth = entity.col + entity.row;
+    const layer = Math.floor((depth / 2000) * layerCount);
+    layerStats[layer].entities++;
+  }
+  
+  // Add cloud count to layer stats
+  layerStats[layerCount - 1].clouds = state.clouds.length;
   
   layerList.innerHTML = '';
+  // Display from top (foreground) to bottom (background): Layer 4 → Layer 0
   for (let i = layerCount - 1; i >= 0; i--) {
     const parallax = 0.3 + (i / (layerCount - 1)) * state.layerSettings.parallaxRange;
     const alpha = 1.0 - (1.0 - state.layerSettings.foregroundAlpha) * (i / (layerCount - 1));
     const zOffset = i * state.layerSettings.zIndexStep;
-    
-    // Count tiles per layer
-    let tileCount = 0;
-    for (let c = 0; c < mapSize; c++) {
-      for (let r = 0; r < mapSize; r++) {
-        const depth = c + r;
-        const layerIdx = Math.floor((depth / 2000) * layerCount);
-        if (layerIdx === i) tileCount++;
-      }
-    }
     
     const div = document.createElement('div');
     div.className = 'layer-item';
     div.style.borderLeft = i === layerCount - 1 ? '3px solid #4a90d9' : '3px solid transparent';
     div.innerHTML = `
       <div style="display:flex;align-items:center;">
-        <div class="layer-color" style="background:#${i.toString(16).padStart(2, '0')}ff${i.toString(16).padStart(2, '0')}"></div>
+        <div class="layer-color" style="background:${LAYER_COLORS[i]};opacity:${alpha}"></div>
         <span>Layer ${i} ${i === layerCount - 1 ? '(前景)' : i === 0 ? '(背景)' : ''}</span>
       </div>
       <div style="text-align:right;">
-        <div>${tileCount} tiles</div>
+        <div>${layerStats[i].tiles} tiles | ${layerStats[i].entities} entities${layerStats[i].clouds ? ` | ☁️ ${layerStats[i].clouds} clouds` : ''}</div>
         <div style="font-size:0.75em;color:#888;">
           ${(parallax * 100).toFixed(0)}% parallax | ${(alpha * 100).toFixed(0)}% alpha | Z+${zOffset}
         </div>
