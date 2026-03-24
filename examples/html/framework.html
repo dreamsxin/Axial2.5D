@@ -589,24 +589,24 @@ function drawDebug() {
       // Collect tiles to process
       const tilesToProcess = new Set();
       
-      // Step 1: Building footprint
+      // Step 1: Building footprint (extending southeast from northwest corner)
       for (let dc = 0; dc < buildingCols; dc++) {
         for (let dr = 0; dr < buildingRows; dr++) {
-          const col = entity.col - dc;
-          const row = entity.row - dr;
+          const col = entity.col + dc;
+          const row = entity.row + dr;
           if (col >= 0 && row >= 0) {
             tilesToProcess.add(`${col},${row}`);
           }
         }
       }
       
-      // Step 2: Corner neighbors
-      const cornerCol = entity.col - buildingCols + 1;
-      const cornerRow = entity.row - buildingRows + 1;
+      // Step 2: Corner neighbors (southeast corner + east + south)
+      const cornerCol = entity.col + buildingCols - 1;
+      const cornerRow = entity.row + buildingRows - 1;
       const neighborOffsets = [
-        { dc: 0, dr: 0 },
-        { dc: -1, dr: 0 },
-        { dc: 0, dr: -1 },
+        { dc: 0, dr: 0 },   // Southeast corner
+        { dc: 1, dr: 0 },   // East of corner
+        { dc: 0, dr: 1 },   // South of corner
       ];
       
       for (const offset of neighborOffsets) {

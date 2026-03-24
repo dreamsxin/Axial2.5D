@@ -311,9 +311,13 @@ export class EntityManager {
 
   /**
    * Calculate occlusion for a single building
-   * Example: Building at (5,5) h=120, tileSize=50
-   * - Occupies: (5,5) and potentially (4,5), (5,4), (4,4) depending on width/length
-   * - Affected occlusion tiles: (5,5), (4,5), (5,4) + northwest extension
+   * Coordinate system: origin at northwest, col increases east, row increases south
+   * Building at (col,row) extends southeast
+   * 
+   * Example: Building at (3,9) h=65, w=90, l=90, tileSize=50
+   * - Occupies: (3,9), (4,9), (3,10), (4,10) [2x2 grid cells]
+   * - Southeast corner: (4,10)
+   * - Occlusion: casts shadow northwest from occupied tiles
    */
   private calculateBuildingOcclusion(
     buildingCol: number,
@@ -335,11 +339,12 @@ export class EntityManager {
     // Collect all tiles that need occlusion calculation
     const tilesToProcess: Set<string> = new Set();
 
-    // Step 1: Add all tiles occupied by the building
+    // Step 1: Add all tiles occupied by the building (extending southeast)
+    // Building at (col,row) is the northwest corner, extends +col (east) and +row (south)
     for (let dc = 0; dc < colsOccupied; dc++) {
       for (let dr = 0; dr < rowsOccupied; dr++) {
-        const col = buildingCol - dc;
-        const row = buildingRow - dr;
+        const col = buildingCol + dc;
+        const row = buildingRow + dr;
         if (col >= 0 && col < mapWidth && row >= 0 && row < mapHeight) {
           tilesToProcess.add(`${col},${row}`);
         }
@@ -347,15 +352,15 @@ export class EntityManager {
     }
 
     // Step 2: Add diagonal neighbor tiles (the "corner" tiles that affect occlusion)
-    // For a building at (5,5), add (4,4) as it's the diagonal corner
-    const cornerCol = buildingCol - colsOccupied + 1;
-    const cornerRow = buildingRow - rowsOccupied + 1;
+    // Southeast corner of building
+    const cornerCol = buildingCol + colsOccupied - 1;
+    const cornerRow = buildingRow + rowsOccupied - 1;
     
-    // Add the 3 tiles around the corner: (cornerCol, cornerRow), (cornerCol-1, cornerRow), (cornerRow, cornerRow-1)
+    // Add the 3 tiles around the southeast corner: corner, east of corner, south of corner
     const neighborOffsets = [
-      { dc: 0, dr: 0 },   // The corner itself
-      { dc: -1, dr: 0 },  // West of corner
-      { dc: 0, dr: -1 },  // North of corner
+      { dc: 0, dr: 0 },   // The southeast corner itself
+      { dc: 1, dr: 0 },   // East of corner
+      { dc: 0, dr: 1 },   // South of corner
     ];
 
     for (const offset of neighborOffsets) {
@@ -370,7 +375,7 @@ export class EntityManager {
     for (const key of tilesToProcess) {
       const [col, row] = key.split(',').map(Number);
       
-      // Cast shadow in 3 directions northwest
+      // Cast shadow in 3 directions northwest (toward camera)
       const directions = [
         { dc: -1, dr: -1 },  // Northwest (diagonal)
         { dc: -1, dr: 0 },   // West
