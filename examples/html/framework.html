@@ -255,6 +255,9 @@ function regenerateClouds() {
   log(`☁️ Regenerated ${total} clouds`, 'success');
 }
 
+// Expose to window for button onclick
+window.regenerateClouds = regenerateClouds;
+
 function setupEffects() {
   regenerateClouds();
 }
