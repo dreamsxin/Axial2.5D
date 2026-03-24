@@ -36,6 +36,7 @@
     <div class="stat">FPS: <span id="fps">0</span></div>
     <div class="stat">Layers: <span id="layerCount">0</span></div>
     <div class="stat">Player: <span id="playerPos">0, 0</span></div>
+    <div class="stat">Occlusion: <span id="occlusionAlpha">100%</span></div>
     <h2>🎯 Controls</h2>
     <div class="stat"><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span> Move</div>
     <div class="stat"><span class="key">Click</span> Move to tile</div>
@@ -199,34 +200,44 @@ function setupMapTiles() {
 }
 
 function setupEntities() {
-  // Player entity
+  // Player entity (character height = 40, shorter than buildings for occlusion demo)
   game.entityManager.addEntity({
     id: 'player',
     col: state.player.col,
     row: state.player.row,
-    width: 50,
-    length: 50,
-    height: 70,
+    width: 40,
+    length: 40,
+    height: 40,  // Character height (shorter than buildings)
     depth: 0,
-    visible: true
+    visible: true,
+    colors: ['#ff6b6b', '#ff5252', '#ff3838', '#e03030', '#ff6b6b', '#c02020']
   });
   log(`Added player at (${state.player.col}, ${state.player.row})`, 'success');
 
   // Buildings with unique colors
   const buildingColors = [
-    ['#f5deb3', '#deb887', '#cd853f', '#b8860b', '#daa520', '#8b4513'],
-    ['#8b0000', '#a52a2a', '#8b0000', '#654321', '#8b4513', '#654321'],
-    ['#2e8b57', '#3cb371', '#2e8b57', '#654321', '#8b4513', '#654321'],
-    ['#4169e1', '#6495ed', '#4169e1', '#654321', '#8b4513', '#654321'],
-    ['#708090', '#778899', '#708090', '#654321', '#8b4513', '#654321']
+    ['#f5deb3', '#deb887', '#cd853f', '#b8860b', '#daa520', '#8b4513'],  // Townhall - wheat
+    ['#8b0000', '#a52a2a', '#8b0000', '#654321', '#8b4513', '#654321'],  // Red house
+    ['#2e8b57', '#3cb371', '#2e8b57', '#654321', '#8b4513', '#654321'],  // Green house
+    ['#4169e1', '#6495ed', '#4169e1', '#654321', '#8b4513', '#654321'],  // Blue house
+    ['#708090', '#778899', '#708090', '#654321', '#8b4513', '#654321'],  // Gray warehouse
+    ['#9370db', '#8b7ab8', '#9370db', '#654321', '#8b4513', '#654321'],  // Purple tower
+    ['#ff8c00', '#ffa500', '#ff8c00', '#654321', '#8b4513', '#654321']   // Orange tower
   ];
 
   const buildings = [
-    { id: 'townhall', col: 6, row: 6, width: 150, length: 150, height: 100, colorIndex: 0 },
-    { id: 'house1', col: 2, row: 2, width: 100, length: 100, height: 70, colorIndex: 1 },
-    { id: 'house2', col: 9, row: 2, width: 100, length: 100, height: 70, colorIndex: 2 },
-    { id: 'house3', col: 2, row: 9, width: 100, length: 100, height: 70, colorIndex: 3 },
-    { id: 'warehouse', col: 9, row: 9, width: 120, length: 100, height: 60, colorIndex: 4 }
+    // Tall buildings (will occlude player)
+    { id: 'tower1', col: 5, row: 5, width: 80, length: 80, height: 120, colorIndex: 5 },
+    { id: 'tower2', col: 7, row: 7, width: 80, length: 80, height: 100, colorIndex: 6 },
+    { id: 'tower3', col: 8, row: 5, width: 70, length: 70, height: 90, colorIndex: 3 },
+    
+    // Medium buildings
+    { id: 'townhall', col: 3, row: 3, width: 120, length: 120, height: 80, colorIndex: 0 },
+    { id: 'house1', col: 9, row: 3, width: 90, length: 90, height: 65, colorIndex: 1 },
+    { id: 'house2', col: 3, row: 9, width: 90, length: 90, height: 65, colorIndex: 2 },
+    
+    // Small buildings
+    { id: 'warehouse', col: 9, row: 9, width: 100, length: 80, height: 50, colorIndex: 4 }
   ];
 
   for (const b of buildings) {
@@ -237,7 +248,7 @@ function setupEntities() {
       colors: buildingColors[b.colorIndex]
     });
   }
-  log(`Added ${buildings.length} buildings`, 'success');
+  log(`Added ${buildings.length} buildings (3 tall towers for occlusion demo)`, 'success');
   log(`Total entities: ${game.entityManager.getCount()}`, 'info');
 }
 
@@ -443,6 +454,25 @@ function updateUI() {
   document.getElementById('fps').textContent = state.fps;
   document.getElementById('layerCount').textContent = CONFIG.layerCount;
   document.getElementById('playerPos').textContent = `${state.player.col}, ${state.player.row}`;
+  
+  // Update occlusion alpha display
+  const playerEntity = game.entityManager.getEntity('player');
+  if (playerEntity) {
+    const alpha = Math.round(playerEntity.occlusionAlpha * 100);
+    const occlusionEl = document.getElementById('occlusionAlpha');
+    if (occlusionEl) {
+      occlusionEl.textContent = `${alpha}%`;
+      // Visual feedback: red when heavily occluded, green when visible
+      if (alpha < 50) {
+        occlusionEl.style.color = '#ff6b6b';
+      } else if (alpha < 80) {
+        occlusionEl.style.color = '#ffa500';
+      } else {
+        occlusionEl.style.color = '#4ad97a';
+      }
+    }
+  }
+  
   updateLayerList();
 }
 
