@@ -40,70 +40,66 @@ export class Projection {
 
   /**
    * Convert world coordinates to screen coordinates
-   * @param x - World X coordinate
-   * @param z - World Z coordinate (depth)
-   * @param y - World Y coordinate (height)
+   * @param worldX - World X coordinate (ground plane, corresponds to grid col)
+   * @param worldY - World Y coordinate (ground plane, corresponds to grid row)
+   * @param worldZ - World Z coordinate (height)
    * @returns Screen coordinates {sx, sy}
    */
-  public worldToScreen(x: number, z: number, y: number = 0): ScreenCoord {
+  public worldToScreen(worldX: number, worldY: number, worldZ: number = 0): ScreenCoord {
     let sx: number, sy: number;
 
     if (this.type === 'isometric') {
-      // Standard isometric projection
-      // screenX = (x - z) * cos(viewAngle) * scale
-      // screenY = (x + z) * sin(viewAngle) * scale - y
-      sx = (x - z) * this.cosView * this.tileScale;
-      sy = (x + z) * this.sinView * this.tileScale - y;
+      // Standard isometric projection (matches standalone.html)
+      // screenX = (worldX - worldY) * cos(viewAngle) * scale
+      // screenY = (worldX + worldY) * sin(viewAngle) * scale - worldZ
+      sx = (worldX - worldY) * this.cosView * this.tileScale;
+      sy = (worldX + worldY) * this.sinView * this.tileScale - worldZ;
     } else {
       // Dimetric projection with independent tilt
-      // screenX = (x * cos(view) - z * sin(view)) * scale
-      // screenY = (x * sin(view) + z * cos(view)) * sin(tilt) - y * cos(tilt)
-      sx = (x * this.cosView - z * this.sinView) * this.tileScale;
-      sy = (x * this.sinView + z * this.cosView) * this.sinTilt - y * this.cosTilt;
+      sx = (worldX * this.cosView - worldY * this.sinView) * this.tileScale;
+      sy = (worldX * this.sinView + worldY * this.cosView) * this.sinTilt - worldZ * this.cosTilt;
     }
 
     return { sx, sy };
   }
 
   /**
-   * Convert screen coordinates to world coordinates (assumes y=0 for ground plane)
+   * Convert screen coordinates to world coordinates (assumes worldZ=0 for ground plane)
    * @param sx - Screen X coordinate
    * @param sy - Screen Y coordinate
-   * @param y - World Y coordinate (height, default 0 for ground)
-   * @returns World coordinates {x, z}
+   * @param worldZ - World Z coordinate (height, default 0 for ground)
+   * @returns World coordinates {worldX, worldY}
    */
-  public screenToWorld(sx: number, sy: number, y: number = 0): WorldCoord {
-    let x: number, z: number;
+  public screenToWorld(sx: number, sy: number, worldZ: number = 0): { worldX: number; worldY: number } {
+    let worldX: number, worldY: number;
 
     if (this.type === 'isometric') {
-      // Inverse isometric projection
-      // From: sx = (x - z) * cos * scale
-      //       sy = (x + z) * sin * scale - y
-      // Solve for x and z:
+      // Inverse isometric projection (matches standalone.html)
+      // From: sx = (worldX - worldY) * cos * scale
+      //       sy = (worldX + worldY) * sin * scale - worldZ
+      // Solve for worldX and worldY:
       const scaledSx = sx / (this.cosView * this.tileScale);
-      const scaledSy = (sy + y) / (this.sinView * this.tileScale);
+      const scaledSy = (sy + worldZ) / (this.sinView * this.tileScale);
       
-      x = (scaledSx + scaledSy) / 2;
-      z = (scaledSy - scaledSx) / 2;
+      worldX = (scaledSx + scaledSy) / 2;
+      worldY = (scaledSy - scaledSx) / 2;
     } else {
       // Inverse dimetric projection - solve linear system
-      // [ cos  -sin ] [x] = [ sx / scale ]
-      // [ sin   cos ] [z]   [ (sy + y*cosTilt) / sinTilt ]
       const a = this.cosView;
       const b = -this.sinView;
       const c = this.sinView;
       const d = this.cosView;
       
-      const det = a * d - b * c; // Should be 1 for rotation matrix
+      const det = a * d - b * c;
       
       const tx = sx / this.tileScale;
-      const ty = (sy + y * this.cosTilt) / this.sinTilt;
+      const ty = (sy + worldZ * this.cosTilt) / this.sinTilt;
       
-      x = (d * tx - b * ty) / det;
-      z = (-c * tx + a * ty) / det;
+      worldX = (d * tx - b * ty) / det;
+      worldY = (-c * tx + a * ty) / det;
     }
 
-    return { x, z };
+    return { worldX, worldY };
   }
 
   /**

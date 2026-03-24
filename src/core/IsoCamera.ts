@@ -132,7 +132,7 @@ export class IsoCamera {
   /**
    * Get the visible world bounds given a projection
    */
-  public getVisibleBounds(projection: Projection): { minX: number; maxX: number; minZ: number; maxZ: number } {
+  public getVisibleBounds(projection: Projection): { minX: number; maxX: number; minY: number; maxY: number } {
     const halfW = (this.canvasWidth / 2) / this.scale;
     const halfH = (this.canvasHeight / 2) / this.scale;
     
@@ -147,10 +147,10 @@ export class IsoCamera {
     );
     
     return {
-      minX: Math.min(topLeft.x, bottomRight.x),
-      maxX: Math.max(topLeft.x, bottomRight.x),
-      minZ: Math.min(topLeft.z, bottomRight.z),
-      maxZ: Math.max(topLeft.z, bottomRight.z)
+      minX: Math.min(topLeft.worldX, bottomRight.worldX),
+      maxX: Math.max(topLeft.worldX, bottomRight.worldX),
+      minY: Math.min(topLeft.worldY, bottomRight.worldY),
+      maxY: Math.max(topLeft.worldY, bottomRight.worldY)
     };
   }
 
@@ -232,8 +232,8 @@ export class IsoCamera {
     const world = projection.screenToWorld(scaledX, scaledY, worldZ);
     
     return {
-      x: world.x,
-      y: world.z,  // In projection, z is the depth axis (our Y in grid space)
+      x: world.worldX,
+      y: world.worldY,
       z: worldZ
     };
   }

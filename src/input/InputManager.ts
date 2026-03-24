@@ -114,7 +114,7 @@ export class InputManager {
     // Apply projection inverse
     const worldPos = this.projection.screenToWorld(cameraSpace.sx, cameraSpace.sy, 0);
     
-    return { x: worldPos.x, z: worldPos.z };
+    return { x: worldPos.worldX, z: worldPos.worldY };
   }
 
   // Event Handlers

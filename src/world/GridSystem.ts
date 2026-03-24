@@ -134,10 +134,12 @@ export class GridSystem {
 
   /**
    * Convert grid coordinates to world coordinates
+   * Note: This returns simple world coordinates (col * tileW, row * tileH)
+   * The isometric projection is handled by Projection.worldToScreen()
    */
   public gridToWorld(col: number, row: number): WorldCoord {
-    const x = (col - row) * (this.tileW / 2);
-    const z = (col + row) * (this.tileH / 2);
+    const x = col * this.tileW;
+    const z = row * this.tileH;
     return { x, z };
   }
 
@@ -145,12 +147,9 @@ export class GridSystem {
    * Convert world coordinates to grid coordinates
    */
   public worldToGrid(x: number, z: number): GridCoord {
-    const col = (x / (this.tileW / 2) + z / (this.tileH / 2)) / 2;
-    const row = (z / (this.tileH / 2) - x / (this.tileW / 2)) / 2;
-    return {
-      col: Math.round(col),
-      row: Math.round(row)
-    };
+    const col = Math.round(x / this.tileW);
+    const row = Math.round(z / this.tileH);
+    return { col, row };
   }
 
   /**
@@ -225,6 +224,7 @@ export class GridSystem {
       for (let row = 0; row < this.height; row++) {
         const tile = this.tiles[col][row];
         const worldPos = this.gridToWorld(col, row);
+        // worldPos.x = worldX, worldPos.z = worldY (ground plane), tile.height = worldZ
         const screenPos = this.projection.worldToScreen(worldPos.x, worldPos.z, tile.height);
         
         // Depth is the screen Y position (bottom of tile)

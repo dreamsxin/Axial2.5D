@@ -70,13 +70,13 @@ test('Isometric worldToScreen conversion', () => {
 
 test('Isometric screenToWorld roundtrip', () => {
   const proj = new Projection({ type: 'isometric', viewAngle: 45 });
-  const original = { x: 100, z: 50 };
+  const original = { worldX: 100, worldY: 50 };
   
-  const screen = proj.worldToScreen(original.x, original.z, 0);
+  const screen = proj.worldToScreen(original.worldX, original.worldY, 0);
   const world = proj.screenToWorld(screen.sx, screen.sy, 0);
   
-  assert(Math.abs(world.x - original.x) < 0.1, 'X should match after roundtrip');
-  assert(Math.abs(world.z - original.z) < 0.1, 'Z should match after roundtrip');
+  assert(Math.abs(world.worldX - original.worldX) < 0.1, 'worldX should match after roundtrip');
+  assert(Math.abs(world.worldY - original.worldY) < 0.1, 'worldY should match after roundtrip');
 });
 
 test('Dimetric projection with custom tilt', () => {
