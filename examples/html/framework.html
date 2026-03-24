@@ -88,9 +88,15 @@ const state = {
   showGrid: true,
   showDebug: false,
   player: { col: 6, row: 6 },
+  mouse: { x: 0, y: 0 },  // Initialize mouse coordinates
   lastTime: 0,
   frameCount: 0,
-  fps: 0
+  fps: 0,
+  layerSettings: {
+    foregroundAlpha: 0.6,
+    zIndexStep: 30,
+    parallaxRange: 0.7
+  }
 };
 
 // ==================== Initialize Game ====================
@@ -138,6 +144,13 @@ game.inputManager.setLayerConfig({
   parallaxRange: 0.7
 });
 game.inputManager.init();
+
+// Track mouse position for debug display
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  state.mouse.x = e.clientX - rect.left;
+  state.mouse.y = e.clientY - rect.top;
+});
 
 // Setup event handlers
 setupEventHandlers();
