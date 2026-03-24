@@ -113,6 +113,8 @@ export class EntityManager {
 
   /**
    * Update all entities and recalculate depths
+   * Depth is calculated as: screen Y of entity's base (feet) + entity height
+   * This ensures correct sorting for isometric rendering
    */
   public updateAll(delta: number = 16): void {
     for (const entity of this.entities.values()) {
@@ -121,9 +123,10 @@ export class EntityManager {
       }
       
       // Recalculate depth based on projection
+      // Match standalone.html: depth = screenY(base) + height
       const worldPos = this.gridSystem.gridToWorld(entity.col, entity.row);
-      const screenPos = this.projection.worldToScreen(worldPos.x, worldPos.z, entity.height);
-      entity.depth = screenPos.sy;
+      const baseScreenPos = this.projection.worldToScreen(worldPos.x, worldPos.z, 0);
+      entity.depth = baseScreenPos.sy + entity.height;
     }
   }
 
