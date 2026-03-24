@@ -118,8 +118,8 @@ export class CameraController {
     
     this.camera.follow(
       worldPos.x,
-      0, // worldY (not used in 2.5D)
-      0, // worldZ (ground level)
+      worldPos.z, // worldY (depth in isometric - corresponds to row)
+      0, // worldZ (ground level height)
       this.projection,
       {
         smoothness,
