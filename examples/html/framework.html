@@ -517,12 +517,7 @@ window.updateLayerSettings = () => {
 
 // ==================== Debug Display ====================
 // NOTE: Debug rendering now handled by DebugRenderer (Phase 3)
-// drawDebug() removed - replaced with debugRenderer.render() in render hook.
-// Keep this function for legacy compatibility if needed.
-function drawDebug() {
-  // Legacy debug rendering - can be removed if not needed
-  // DebugRenderer handles: text overlays, tile highlights, lines, shapes
-}
+// drawDebug() completely removed - replaced with debugRenderer.render() in render hook.
   
   // Calculate player layer info once
   const playerDepth = state.player.col + state.player.row;
@@ -585,43 +580,8 @@ function drawDebug() {
     ctx.fillText(`${prefix} ${entity.id}: (${entity.col},${entity.row}) h=${entity.height}${occlusionInfo}`, 10, y); y += lineH;
   }
   
-  // Highlight mouse tile
-  if (state.mouse.x !== undefined && state.mouse.y !== undefined) {
-    const mouseInfo = game.inputManager.getMouseGridPosition(state.player.col, state.player.row);
-    const { col, row } = mouseInfo;
-    
-    if (col >= 0 && col < CONFIG.mapSize && row >= 0 && row < CONFIG.mapSize) {
-      const playerZOffset = playerLayerInfo.zIndexOffset;
-      const worldPos = gridToWorld(col, row, CONFIG.cellSize);
-      
-      const corners = [
-        game.renderer.camera.worldToScreen(worldPos.x, worldPos.y, 0, game.projection, playerParallax),
-        game.renderer.camera.worldToScreen(worldPos.x + CONFIG.cellSize, worldPos.y, 0, game.projection, playerParallax),
-        game.renderer.camera.worldToScreen(worldPos.x + CONFIG.cellSize, worldPos.y + CONFIG.cellSize, 0, game.projection, playerParallax),
-        game.renderer.camera.worldToScreen(worldPos.x, worldPos.y + CONFIG.cellSize, 0, game.projection, playerParallax)
-      ];
-      
-      ctx.save();
-      if (playerZOffset !== 0) {
-        ctx.translate(0, playerZOffset);
-      }
-      
-      ctx.beginPath();
-      ctx.moveTo(corners[0].sx, corners[0].sy);
-      for (let i = 1; i < 4; i++) {
-        ctx.lineTo(corners[i].sx, corners[i].sy);
-      }
-      ctx.closePath();
-      ctx.strokeStyle = '#ffff00';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      
-      ctx.restore();
-    }
-  }
-  
-  // NOTE: Occlusion visualization now handled by DebugRenderer
-  // Legacy code removed - use debugRenderer.addTileHighlight() instead
+  // NOTE: Mouse tile highlight now handled by DebugRenderer
+  // Legacy code removed - use debugRenderer.addTileHighlight('mouse', {...}) instead
 }
 
 function updateLayerList() {
