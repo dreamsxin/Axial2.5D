@@ -289,7 +289,22 @@ export class EntityManager {
         ? (b.col + Math.ceil(((b as any).width || 50) / 50) - 1) + (b.row + Math.ceil(((b as any).length || 50) / 50) - 1)
         : b.col + b.row;
       
-      return aSED - bSED;
+      // Primary sort: by southeast depth
+      if (aSED !== bSED) {
+        return aSED - bSED;
+      }
+      
+      // Secondary sort: when depth is equal, characters render after buildings
+      // (characters should appear in front of buildings at same depth)
+      if (aIsBuilding !== bIsBuilding) {
+        return aIsBuilding ? -1 : 1; // buildings first, characters last
+      }
+      
+      // Tertiary sort: by row (south first), then by col (east first)
+      if (a.row !== b.row) {
+        return b.row - a.row;
+      }
+      return b.col - a.col;
     });
 
     // Single pass: draw all entities in depth order
@@ -332,6 +347,7 @@ export class EntityManager {
       const aIsBuilding = a.height >= 50;
       const bIsBuilding = b.height >= 50;
       
+      // Calculate southeast corner depth for both entities
       const aSED = aIsBuilding 
         ? (a.col + Math.ceil(((a as any).width || 50) / 50) - 1) + (a.row + Math.ceil(((a as any).length || 50) / 50) - 1)
         : a.col + a.row;
@@ -340,7 +356,22 @@ export class EntityManager {
         ? (b.col + Math.ceil(((b as any).width || 50) / 50) - 1) + (b.row + Math.ceil(((b as any).length || 50) / 50) - 1)
         : b.col + b.row;
       
-      return aSED - bSED;
+      // Primary sort: by southeast depth
+      if (aSED !== bSED) {
+        return aSED - bSED;
+      }
+      
+      // Secondary sort: when depth is equal, characters render after buildings
+      // (characters should appear in front of buildings at same depth)
+      if (aIsBuilding !== bIsBuilding) {
+        return aIsBuilding ? -1 : 1; // buildings first, characters last
+      }
+      
+      // Tertiary sort: by row (south first), then by col (east first)
+      if (a.row !== b.row) {
+        return b.row - a.row;
+      }
+      return b.col - a.col;
     });
 
     // Single pass: draw all entities in depth order
