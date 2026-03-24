@@ -11,7 +11,7 @@ const game = new Game({
   height: 600,
   projection: {
     type: 'isometric',
-    viewAngle: 45,
+    viewAngle: 30,  // True isometric projection
     tileScale: 1
   },
   debug: {
@@ -75,7 +75,7 @@ game.init(mapData);
 // Create a scene with entities
 const sceneConfig = {
   name: 'main',
-  projection: { type: 'isometric' as const, viewAngle: 45 },
+  projection: { type: 'isometric' as const, viewAngle: 30 },  // True isometric
   mapData,
   entities: [
     { id: 'player', type: 'player', col: 3, row: 3, height: 40 },

@@ -26,7 +26,7 @@ import {
 const eventBus = new EventBus();
 const projection = new Projection({
   type: 'isometric',
-  viewAngle: 45,
+  viewAngle: 30,  // True isometric projection
   tileScale: 1
 });
 

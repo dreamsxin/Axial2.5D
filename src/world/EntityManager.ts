@@ -221,8 +221,9 @@ export class EntityManager {
     }
 
     // Get all entities and sort by depth
-    const sortedEntities = this.getAllEntities()
-      .filter(e => e.visible !== false)
+    const allEntities = this.getAllEntities().filter(e => e.visible !== false);
+    
+    const sortedEntities = allEntities
       .filter(e => {
         // If layerIndex specified, only render entities for this layer
         if (layerIndex !== undefined) {
@@ -250,7 +251,7 @@ export class EntityManager {
   }
 
   /**
-   * Draw default entity representation (box)
+   * Draw default entity representation (3D box like standalone.html)
    */
   private drawDefaultEntity(
     ctx: CanvasRenderingContext2D,
@@ -259,37 +260,89 @@ export class EntityManager {
     parallaxFactor: number,
     wireframe: boolean
   ): void {
-    // Entity may have width/length properties (extended entities)
     const w = (entity as any).width || 50;
     const l = (entity as any).length || 50;
     const h = entity.height || 50;
     const baseX = worldPos.x;
     const baseY = worldPos.z;
 
-    // Get screen corners using camera
-    // Note: This is simplified - full implementation would use IsoBox
-    const screenPos = this.camera.worldToScreen(
-      baseX,
-      baseY,
-      0,
-      this.projection,
-      parallaxFactor
-    );
+    // Calculate 8 corners of the box in screen space
+    const corners = {
+      lbb: this.camera.worldToScreen(baseX, baseY, 0, this.projection, parallaxFactor),
+      rbb: this.camera.worldToScreen(baseX + w, baseY, 0, this.projection, parallaxFactor),
+      rfb: this.camera.worldToScreen(baseX + w, baseY + l, 0, this.projection, parallaxFactor),
+      lfb: this.camera.worldToScreen(baseX, baseY + l, 0, this.projection, parallaxFactor),
+      lbt: this.camera.worldToScreen(baseX, baseY, h, this.projection, parallaxFactor),
+      rbt: this.camera.worldToScreen(baseX + w, baseY, h, this.projection, parallaxFactor),
+      rft: this.camera.worldToScreen(baseX + w, baseY + l, h, this.projection, parallaxFactor),
+      lft: this.camera.worldToScreen(baseX, baseY + l, h, this.projection, parallaxFactor)
+    };
 
-    ctx.strokeStyle = wireframe ? '#fff' : '#444';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(
-      screenPos.sx - w / 2,
-      screenPos.sy - h,
-      w,
-      h
-    );
+    // Use entity-specific colors if available, otherwise use default
+    const colors = (entity as any).colors || ['#f5deb3', '#deb887', '#cd853f', '#b8860b', '#daa520', '#8b4513'];
 
-    // Draw entity ID
+    if (!wireframe) {
+      // Draw 6 faces
+      const faces = [
+        [corners.lbb, corners.rbb, corners.rfb, corners.lfb, colors[5]], // bottom
+        [corners.lbb, corners.lfb, corners.lft, corners.lbt, colors[4]], // left
+        [corners.lbb, corners.rbb, corners.rbt, corners.lbt, colors[3]], // back-right
+        [corners.lfb, corners.rfb, corners.rft, corners.lft, colors[2]], // front
+        [corners.rbb, corners.rfb, corners.rft, corners.rbt, colors[1]], // right
+        [corners.lbt, corners.rbt, corners.rft, corners.lft, colors[0]]  // top
+      ];
+
+      for (const face of faces) {
+        const [p1, p2, p3, p4, color] = face as any;
+        ctx.beginPath();
+        ctx.moveTo((p1 as any).sx, (p1 as any).sy);
+        ctx.lineTo((p2 as any).sx, (p2 as any).sy);
+        ctx.lineTo((p3 as any).sx, (p3 as any).sy);
+        ctx.lineTo((p4 as any).sx, (p4 as any).sy);
+        ctx.closePath();
+        ctx.fillStyle = color as string;
+        ctx.fill();
+        ctx.strokeStyle = '#444';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    } else {
+      // Wireframe mode
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      
+      // Bottom edges
+      ctx.beginPath();
+      ctx.moveTo(corners.lbb.sx, corners.lbb.sy);
+      ctx.lineTo(corners.rbb.sx, corners.rbb.sy);
+      ctx.lineTo(corners.rfb.sx, corners.rfb.sy);
+      ctx.lineTo(corners.lfb.sx, corners.lfb.sy);
+      ctx.closePath();
+      ctx.stroke();
+      
+      // Top edges
+      ctx.beginPath();
+      ctx.moveTo(corners.lbt.sx, corners.lbt.sy);
+      ctx.lineTo(corners.rbt.sx, corners.rbt.sy);
+      ctx.lineTo(corners.rft.sx, corners.rft.sy);
+      ctx.lineTo(corners.lft.sx, corners.lft.sy);
+      ctx.closePath();
+      ctx.stroke();
+      
+      // Vertical edges
+      ctx.beginPath();
+      ctx.moveTo(corners.lbb.sx, corners.lbb.sy); ctx.lineTo(corners.lbt.sx, corners.lbt.sy);
+      ctx.moveTo(corners.rbb.sx, corners.rbb.sy); ctx.lineTo(corners.rbt.sx, corners.rbt.sy);
+      ctx.moveTo(corners.rfb.sx, corners.rfb.sy); ctx.lineTo(corners.rft.sx, corners.rft.sy);
+      ctx.moveTo(corners.lfb.sx, corners.lfb.sy); ctx.lineTo(corners.lft.sx, corners.lft.sy);
+      ctx.stroke();
+    }
+
+    // Draw entity ID above the building
     ctx.fillStyle = '#fff';
     ctx.font = '12px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText(entity.id, screenPos.sx, screenPos.sy - h - 5);
+    ctx.fillText(entity.id, corners.lft.sx, corners.lft.sy - 15);
   }
 }
 

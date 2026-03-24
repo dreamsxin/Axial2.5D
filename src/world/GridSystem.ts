@@ -355,13 +355,18 @@ export class GridSystem {
 
         ctx.fillStyle = tileColors[tile.type] || '#4a4a4a';
         ctx.fill();
-        ctx.strokeStyle = '#333';
-        ctx.lineWidth = 1;
-        ctx.stroke();
+        
+        // Draw tile border (only when grid is shown, like standalone.html)
+        if (showGrid) {
+          ctx.strokeStyle = '#333';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
       }
     }
 
     // Render grid lines if enabled (on all layers like standalone.html)
+    // These are additional white lines on top of tile borders
     if (showGrid) {
       this.renderGrid(ctx, camera, parallaxFactor, gridColor);
     }

@@ -10,7 +10,7 @@ export type ProjectionType = 'isometric' | 'dimetric';
 
 export interface ProjectionConfig {
   type: ProjectionType;
-  viewAngle: number;      // Horizontal rotation angle in degrees (default 45)
+  viewAngle: number;      // Horizontal rotation angle in degrees (use 30 for true isometric, 45 for dimetric)
   tiltAngle?: number;     // Pitch angle in degrees (dimetric only, default 30)
   tileScale?: number;     // Scale factor (default 1)
 }

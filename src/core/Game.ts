@@ -45,8 +45,9 @@ export class Game {
     this.eventBus = new EventBus();
 
     // Create projection
+    // Default viewAngle: 30° for true isometric projection (matches standalone.html)
     this.projection = new Projection(
-      config.projection || { type: 'isometric', viewAngle: 45 }
+      config.projection || { type: 'isometric', viewAngle: 30 }
     );
 
     // Store canvas reference

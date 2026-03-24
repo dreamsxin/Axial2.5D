@@ -21,7 +21,7 @@ const game = new Game({
   height: 600,
   projection: {
     type: 'isometric',
-    viewAngle: 45,
+    viewAngle: 30,  // True isometric projection
     tileScale: 1
   },
   debug: {
