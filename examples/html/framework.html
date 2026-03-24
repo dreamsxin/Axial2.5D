@@ -80,6 +80,9 @@ const CONFIG = {
   layerCount: 5
 };
 
+// Cloud colors for Layer 1-3 (must be defined before regenerateClouds)
+const layerCloudColors = { 1: '#ff6b6b', 2: '#4ecdc4', 3: '#ffeaa7' };
+
 // ==================== Game State ====================
 const state = {
   showGrid: true,
@@ -210,8 +213,6 @@ function setupEntities() {
 }
 
 // ==================== Cloud System ====================
-const layerCloudColors = { 1: '#ff6b6b', 2: '#4ecdc4', 3: '#ffeaa7' };
-
 function regenerateClouds() {
   // Clear existing clouds
   effectSystem.clear();
