@@ -39,11 +39,14 @@ Axial2.5D/
 │   │   └── EventBus.ts           # 事件总线 Event Bus
 │   └── index.ts                  # 主入口 Entry Point
 ├── examples/                     # 示例 Examples
-│   ├── demo-standalone.html      # 独立演示（无需编译）Standalone Demo
-│   ├── web-example.html          # 框架示例（使用 API）Framework Example ⭐
-│   ├── demo.ts                   # Node.js 演示 CLI Demo
-│   ├── game-demo.ts              # 完整游戏演示 Game Demo
-│   └── advanced-demo.ts          # 高级功能演示 Advanced Demo
+│   ├── html/                     # HTML 示例（浏览器运行）
+│   │   ├── standalone.html       # 独立演示（无需编译）⭐
+│   │   └── framework.html        # 框架示例（使用 API）
+│   ├── ts/                       # TypeScript 示例（需要编译）
+│   │   ├── demo.ts               # 基础演示
+│   │   ├── game-demo.ts          # 完整游戏演示
+│   │   └── advanced-demo.ts      # 高级功能演示
+│   └── README.md                 # 示例说明
 ├── public/                       # 静态资源 Static Assets
 │   └── assets/                   # 图片/音频等 Assets
 ├── server/                       # 服务器 Server
@@ -62,42 +65,35 @@ Axial2.5D/
 ### 方式 1：开发模式（推荐）Development Mode
 
 ```bash
-# 安装依赖
 npm install
-
-# 启动开发服务器（自动打开框架示例）
 npm run dev
-
-# 浏览器访问：http://localhost:3001
 ```
 
+**访问：** http://localhost:3001/examples/html/framework.html
+
 **特点：**
-- 使用框架 API 编写的正式示例
-- 展示正确的集成方式
-- 适合学习和参考
+- 使用框架 API 编写
+- Vite 热重载，开发体验好
+- 适合学习和参考框架用法
 
 ### 方式 2：独立演示 Standalone Demo
 
 ```bash
-# 启动演示服务器
 npm run server
-
-# 浏览器访问：http://localhost:3000
 ```
 
+**访问：** http://localhost:3000
+
 **特点：**
-- 独立 HTML 文件，无需编译
-- 包含所有功能的交互式演示
-- 适合快速体验和测试
+- 完整功能演示
+- 无需编译，直接运行
+- 适合快速体验所有功能
 
 ### 方式 3：命令行演示 CLI Demo
 
 ```bash
-# 运行基础演示
-npm run demo
-
-# 运行测试
-npm run test
+npm run demo    # 基础演示
+npm run test    # 单元测试
 ```
 
 ## 📖 使用框架 Using the Framework

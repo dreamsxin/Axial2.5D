@@ -9,8 +9,10 @@ export { Projection } from './core/Projection';
 export { IsoCamera } from './core/IsoCamera';
 export { CanvasRenderer } from './core/CanvasRenderer';
 export { Game } from './core/Game';
-export { Layer, LayerConfig } from './core/Layer';
-export { LayerManager, LayerManagerConfig } from './core/LayerManager';
+export { Layer } from './core/Layer';
+export type { LayerConfig } from './core/Layer';
+export { LayerManager } from './core/LayerManager';
+export type { LayerManagerConfig } from './core/LayerManager';
 export * from './core/types';
 
 // World
@@ -19,8 +21,10 @@ export { EntityManager, BasicEntity } from './world/EntityManager';
 export { PathFinder } from './world/PathFinder';
 export { IsoPrimitive } from './world/IsoPrimitive';
 export { IsoBox } from './world/IsoBox';
-export { IsoSprite, IsoCharacter, SpriteConfig } from './world/IsoSprite';
-export { GridLines, GridLinesConfig } from './world/GridLines';
+export { IsoSprite, IsoCharacter } from './world/IsoSprite';
+export type { SpriteConfig } from './world/IsoSprite';
+export { GridLines } from './world/GridLines';
+export type { GridLinesConfig } from './world/GridLines';
 
 // Input
 export { InputManager } from './input/InputManager';

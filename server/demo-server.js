@@ -24,7 +24,7 @@ const server = http.createServer((req, res) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
 
   // Parse URL
-  let urlPath = req.url === '/' ? '/demo.html' : req.url;
+  let urlPath = req.url === '/' ? '/standalone.html' : req.url;
   
   // Remove query string
   urlPath = urlPath.split('?')[0];

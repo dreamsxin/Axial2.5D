@@ -5,12 +5,12 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc && npx http-server -p 3001 -o examples/web-example.html",
-    "dev:watch": "tsc --watch",
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
     "test": "tsc && node dist/tests/index.js",
     "demo": "tsc && node dist/examples/demo.js",
-    "server": "tsc && node dist/server/demo-server.js",
+    "server": "node server/demo-server.js",
     "start": "npm run server",
     "clean": "rimraf dist"
   },
