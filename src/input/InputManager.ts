@@ -41,6 +41,12 @@ export class InputManager {
   private blocking: boolean = false;
 
   private keyState: Map<string, boolean> = new Map();
+  
+  // Cached mouse positions for easy access
+  private cachedMouseWorld: { x: number; y: number } | null = null;
+  private cachedMouseGrid: { col: number; row: number } | null = null;
+  private playerColForCache: number = 0;
+  private playerRowForCache: number = 0;
 
   constructor(config: InputManagerConfig) {
     this.canvas = config.canvas;
@@ -126,6 +132,12 @@ export class InputManager {
    * Get mouse position in grid coordinates
    */
   public getMouseGridPosition(playerCol: number, playerRow: number): { col: number; row: number; layer: number } {
+    // Update cache if player position changed
+    if (playerCol !== this.playerColForCache || playerRow !== this.playerRowForCache) {
+      this.cachedMouseGrid = null;
+      this.cachedMouseWorld = null;
+    }
+    
     const parallax = this.getPlayerLayerParallax(playerCol, playerRow);
     const world = this.screenToWorld(this.mouseState.screenX, this.mouseState.screenY, parallax);
     
@@ -138,7 +150,37 @@ export class InputManager {
     const depth = grid.col + grid.row;
     const layer = Math.floor((depth / this.maxDepth) * this.layerCount);
     
+    // Update cache
+    this.cachedMouseWorld = { x: world.x, y: world.y };
+    this.cachedMouseGrid = { col: grid.col, row: grid.row };
+    this.playerColForCache = playerCol;
+    this.playerRowForCache = playerRow;
+    
     return { col: grid.col, row: grid.row, layer };
+  }
+
+  /**
+   * Get current mouse world position (cached, updates on mouse move)
+   * @param playerCol - Player column for parallax calculation
+   * @param playerRow - Player row for parallax calculation
+   */
+  public get mouseWorldPosition(): { x: number; y: number } | null {
+    if (!this.cachedMouseWorld) {
+      this.getMouseGridPosition(this.playerColForCache, this.playerRowForCache);
+    }
+    return this.cachedMouseWorld;
+  }
+
+  /**
+   * Get current mouse grid position (cached, updates on mouse move)
+   * @param playerCol - Player column for parallax calculation
+   * @param playerRow - Player row for parallax calculation
+   */
+  public get mouseGridPosition(): { col: number; row: number } | null {
+    if (!this.cachedMouseGrid) {
+      this.getMouseGridPosition(this.playerColForCache, this.playerRowForCache);
+    }
+    return this.cachedMouseGrid;
   }
 
   /**

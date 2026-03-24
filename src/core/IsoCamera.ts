@@ -4,6 +4,8 @@
 
 import { Projection } from './Projection';
 import { WorldCoord, ScreenCoord } from './types';
+import { Entity } from './types';
+import { GridSystem } from '../world/GridSystem';
 
 /**
  * Screen point with depth and parallax
@@ -358,5 +360,74 @@ export class IsoCamera {
       y: world.worldY,
       z: worldZ
     };
+  }
+
+  /**
+   * Follow an entity automatically (call every frame)
+   * @param entity - Entity to follow
+   * @param gridSystem - Grid system for coordinate conversion
+   * @param projection - Projection for coordinate conversion
+   * @param options - Follow options
+   */
+  public followEntity(
+    entity: Entity,
+    gridSystem: GridSystem,
+    projection: Projection,
+    options?: {
+      smoothness?: number;
+      parallaxFactor?: number;
+      offsetX?: number;
+      offsetY?: number;
+    }
+  ): void {
+    const worldPos = gridSystem.gridToWorld(entity.col, entity.row);
+    
+    // Auto-calculate parallax from entity depth if not provided
+    const parallaxFactor = options?.parallaxFactor ?? (() => {
+      const depth = entity.col + entity.row;
+      const layer = Math.floor((depth / 2000) * 5);
+      return 0.3 + (layer / 4) * 0.7;
+    })();
+
+    this.follow(
+      worldPos.x,
+      worldPos.z,
+      entity.height,
+      projection,
+      {
+        smoothness: options?.smoothness ?? 0.1,
+        parallaxFactor,
+        offsetX: options?.offsetX ?? 0,
+        offsetY: options?.offsetY ?? 0
+      }
+    );
+  }
+
+  /**
+   * Center camera on an entity instantly (no smoothing)
+   */
+  public centerOnEntity(
+    entity: Entity,
+    gridSystem: GridSystem,
+    projection: Projection,
+    options?: {
+      offsetX?: number;
+      offsetY?: number;
+    }
+  ): void {
+    const worldPos = gridSystem.gridToWorld(entity.col, entity.row);
+    
+    this.follow(
+      worldPos.x,
+      worldPos.z,
+      entity.height,
+      projection,
+      {
+        smoothness: 0,
+        parallaxFactor: 1.0,
+        offsetX: options?.offsetX ?? 0,
+        offsetY: options?.offsetY ?? 0
+      }
+    );
   }
 }

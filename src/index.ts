@@ -39,6 +39,8 @@ export { UIManager } from './ui/UIManager';
 
 // Debug
 export { DebugSystem } from './debug/DebugSystem';
+export { DebugRenderer } from './debug/DebugRenderer';
+export type { DebugTextConfig, DebugShapeConfig, DebugTileHighlight } from './debug/DebugRenderer';
 
 // Scene
 export { SceneManager } from './scene/SceneManager';
