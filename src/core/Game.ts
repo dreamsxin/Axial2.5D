@@ -300,6 +300,7 @@ export class Game {
     foregroundAlpha?: number;
     zIndexStep?: number;
     parallaxRange?: number;
+    maxDepth?: number;
   }): void {
     if (!this.gridSystem || !this.entityManager) return;
 
@@ -308,12 +309,12 @@ export class Game {
     const foregroundAlpha = options?.foregroundAlpha ?? 0.6;
     const zIndexStep = options?.zIndexStep ?? 30;
     const parallaxRange = options?.parallaxRange ?? 0.7;
-    const maxDepth = 2000;
+    const maxDepth = options?.maxDepth ?? 2000;
 
     const ctx = this.renderer.ctx as CanvasRenderingContext2D;
     const camera = this.renderer.camera;
 
-    // Render by layers (back to front)
+    // Render by layers (back to front): Layer 0 → Layer N
     for (let layerIdx = 0; layerIdx < layerCount; layerIdx++) {
       // Calculate layer properties
       const parallaxFactor = 0.3 + (layerIdx / (layerCount - 1)) * parallaxRange;
@@ -330,9 +331,12 @@ export class Game {
 
       // Render ground tiles for this layer
       this.gridSystem.renderGround(ctx, camera, {
+        layerIndex: layerIdx,
+        layerCount,
         showGrid: showGrid && layerIdx === 0,
         parallaxFactor,
-        zIndexOffset: 0
+        zIndexOffset: 0,
+        maxDepth
       });
 
       // Render entities for this layer

@@ -280,7 +280,7 @@ export class GridSystem {
   }
 
   /**
-   * Render all ground tiles
+   * Render ground tiles for a specific layer
    * @param ctx - Canvas rendering context
    * @param camera - Camera for coordinate conversion
    * @param options - Render options
@@ -289,17 +289,22 @@ export class GridSystem {
     ctx: CanvasRenderingContext2D,
     camera: IsoCamera,
     options?: {
+      layerIndex?: number;
+      layerCount?: number;
       showGrid?: boolean;
       gridColor?: string;
-      layerIndex?: number;
       parallaxFactor?: number;
       zIndexOffset?: number;
+      maxDepth?: number;
     }
   ): void {
+    const layerIndex = options?.layerIndex ?? 0;
+    const layerCount = options?.layerCount ?? 5;
     const showGrid = options?.showGrid ?? false;
     const gridColor = options?.gridColor ?? 'rgba(255,255,255,0.2)';
     const parallaxFactor = options?.parallaxFactor ?? 1.0;
     const zIndexOffset = options?.zIndexOffset ?? 0;
+    const maxDepth = options?.maxDepth ?? 2000;
 
     ctx.save();
     
@@ -317,10 +322,18 @@ export class GridSystem {
       'dirt': '#8b6914'
     };
 
-    // Render tiles
+    // Render tiles for this layer only
     for (let col = 0; col < this.width; col++) {
       for (let row = 0; row < this.height; row++) {
         const tile = this.tiles[col][row];
+        
+        // Calculate depth (col + row for isometric)
+        const depth = col + row;
+        const tileLayer = Math.floor((depth / maxDepth) * layerCount);
+        
+        // Only render tiles for this layer
+        if (tileLayer !== layerIndex) continue;
+        
         const worldPos = this.gridToWorld(col, row);
         const screen = camera.worldToScreen(
           worldPos.x,
@@ -351,8 +364,8 @@ export class GridSystem {
       }
     }
 
-    // Render grid lines if enabled
-    if (showGrid) {
+    // Render grid lines if enabled (only on base layer)
+    if (showGrid && layerIndex === 0) {
       this.renderGrid(ctx, camera, parallaxFactor, gridColor);
     }
 

@@ -213,8 +213,26 @@ function update() {
 }
 
 function updateCamera() {
-  const worldPos = game.gridSystem.gridToWorld(state.player.col, state.player.row);
-  game.renderer.camera.setPosition(worldPos.x, worldPos.z, game.projection);
+  // 计算玩家所在图层的视差因子
+  const playerDepth = state.player.col + state.player.row;
+  const playerLayer = Math.floor((playerDepth / 2000) * CONFIG.layerCount);
+  const playerParallax = 0.3 + (playerLayer / (CONFIG.layerCount - 1)) * state.layerSettings.parallaxRange;
+  
+  // 计算世界坐标（使用 gridToWorld 工具函数）
+  const worldPos = gridToWorld(state.player.col, state.player.row, CONFIG.cellSize);
+  
+  // 计算原始屏幕位置（考虑 zoom）
+  const scale = state.camera.zoom;
+  const COS_THETA = Math.cos(30 * Math.PI / 180);
+  const SIN_THETA = Math.sin(30 * Math.PI / 180);
+  const rawScreenX = (worldPos.x - worldPos.y) * COS_THETA * scale;
+  const rawScreenY = (worldPos.x + worldPos.y) * SIN_THETA * scale;
+  
+  // 设置相机偏移，使玩家在其图层上居中
+  const camera = game.renderer.camera;
+  camera.offsetX += (-rawScreenX / playerParallax - camera.offsetX) * 0.1;
+  camera.offsetY += (-rawScreenY / playerParallax - camera.offsetY) * 0.1;
+  camera.setZoom(state.camera.zoom);
 }
 
 function render() {
