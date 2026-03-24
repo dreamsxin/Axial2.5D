@@ -5,6 +5,23 @@
 import { Projection } from './Projection';
 import { WorldCoord, ScreenCoord } from './types';
 
+/**
+ * Screen point with depth and parallax
+ */
+export interface ScreenPoint3D {
+  sx: number;
+  sy: number;
+}
+
+/**
+ * World point in 3D space
+ */
+export interface WorldPoint3D {
+  x: number;
+  y: number;
+  z: number;
+}
+
 export class IsoCamera {
   public offsetX: number = 0;
   public offsetY: number = 0;
@@ -144,5 +161,80 @@ export class IsoCamera {
     this.offsetX = 0;
     this.offsetY = 0;
     this.scale = 1;
+  }
+
+  /**
+   * Convert world coordinates to screen coordinates with camera transform and parallax
+   * @param worldX - World X coordinate
+   * @param worldY - World Y coordinate (depth in isometric space)
+   * @param worldZ - World Z coordinate (height)
+   * @param projection - Projection instance for coordinate conversion
+   * @param parallaxFactor - Parallax factor (0-1), 1 = full parallax, 0 = no parallax
+   * @returns Screen coordinates {sx, sy}
+   */
+  public worldToScreen(
+    worldX: number, 
+    worldY: number, 
+    worldZ: number, 
+    projection: Projection,
+    parallaxFactor: number = 1.0
+  ): ScreenPoint3D {
+    // Apply projection to get base screen position
+    const baseScreen = projection.worldToScreen(worldX, worldY, worldZ);
+    
+    // Apply camera zoom
+    const scaledX = baseScreen.sx * this.scale;
+    const scaledY = baseScreen.sy * this.scale;
+    
+    // Apply camera offset with parallax
+    const offsetX = this.offsetX * parallaxFactor;
+    const offsetY = this.offsetY * parallaxFactor;
+    
+    // Add canvas center
+    return {
+      sx: scaledX + offsetX + this.canvasWidth / 2,
+      sy: scaledY + offsetY + this.canvasHeight / 2
+    };
+  }
+
+  /**
+   * Convert screen coordinates to world coordinates with camera transform and parallax
+   * @param screenX - Screen X coordinate
+   * @param screenY - Screen Y coordinate
+   * @param projection - Projection instance for coordinate conversion
+   * @param parallaxFactor - Parallax factor (0-1), 1 = full parallax, 0 = no parallax
+   * @param worldZ - World Z coordinate (height, default 0 for ground)
+   * @returns World coordinates {x, y}
+   */
+  public screenToWorld(
+    screenX: number, 
+    screenY: number, 
+    projection: Projection,
+    parallaxFactor: number = 1.0,
+    worldZ: number = 0
+  ): WorldPoint3D {
+    // Remove canvas center
+    const centeredX = screenX - this.canvasWidth / 2;
+    const centeredY = screenY - this.canvasHeight / 2;
+    
+    // Remove camera offset with parallax
+    const offsetX = this.offsetX * parallaxFactor;
+    const offsetY = this.offsetY * parallaxFactor;
+    
+    const adjustedX = centeredX - offsetX;
+    const adjustedY = centeredY - offsetY;
+    
+    // Remove camera zoom
+    const scaledX = adjustedX / this.scale;
+    const scaledY = adjustedY / this.scale;
+    
+    // Apply inverse projection
+    const world = projection.screenToWorld(scaledX, scaledY, worldZ);
+    
+    return {
+      x: world.x,
+      y: world.z,  // In projection, z is the depth axis (our Y in grid space)
+      z: worldZ
+    };
   }
 }

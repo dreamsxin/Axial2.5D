@@ -20,7 +20,7 @@ import {
   EventBus,
   MapData,
   TileData
-} from '../src/index';
+} from '../../src/index';
 
 // Initialize core systems
 const eventBus = new EventBus();

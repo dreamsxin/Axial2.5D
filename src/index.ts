@@ -12,7 +12,7 @@ export { Game } from './core/Game';
 export { Layer } from './core/Layer';
 export type { LayerConfig } from './core/Layer';
 export { LayerManager } from './core/LayerManager';
-export type { LayerManagerConfig } from './core/LayerManager';
+export type { LayerManagerConfig, LayerInfo } from './core/LayerManager';
 export * from './core/types';
 
 // World
@@ -43,3 +43,7 @@ export { ResourceManager } from './resource/ResourceManager';
 
 // Utils
 export { EventBus } from './utils/EventBus';
+export * from './utils/IsoUtils';
+
+// Camera types
+export type { ScreenPoint3D, WorldPoint3D } from './core/IsoCamera';

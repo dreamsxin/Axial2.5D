@@ -3,7 +3,7 @@
  * Demonstrates the full framework with Game class
  */
 
-import { Game, MapData, TileData, EntityConfig } from '../src/index';
+import { Game, MapData, TileData, EntityConfig } from '../../src/index';
 
 // Create game instance (canvas will be created automatically)
 const game = new Game({

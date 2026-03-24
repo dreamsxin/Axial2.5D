@@ -13,7 +13,7 @@ import {
   GridLines,
   Projection,
   EntityManager
-} from '../src/index';
+} from '../../src/index';
 
 // Create game instance
 const game = new Game({
