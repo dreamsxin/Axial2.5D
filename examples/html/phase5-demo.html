@@ -60,11 +60,18 @@
 </div>
 
 <script type="module">
-import { Game, LayerManager, EffectSystem, CameraController, OcclusionSystem, UIDataBinder } from '../../src/index.ts';
+import { Game, LayerManager, EffectSystem, CameraController, OcclusionSystem, UIDataBinder, DebugRenderer, gridToWorld, worldToGrid } from '../../src/index.ts';
 
 // ==================== Configuration ====================
 const CONFIG = { width: 800, height: 600, mapSize: 12, cellSize: 50, layerCount: 5 };
 const LAYER_COLORS = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#ffeaa7'];
+
+// ==================== Game State ====================
+const state = {
+  showGrid: true,
+  showDebug: false,
+  mouse: { x: 0, y: 0 }
+};
 
 // ==================== Game Setup (Phase 5 - Simplified) ====================
 const game = new Game({
@@ -86,6 +93,78 @@ game.init({ width: CONFIG.mapSize, height: CONFIG.mapSize, tileW: CONFIG.cellSiz
 
 // Get modules
 const { layerManager, effectSystem, cameraController, occlusionSystem, uiManager } = game.modules;
+
+// Initialize DebugRenderer (Phase 3)
+const debugRenderer = new DebugRenderer();
+
+// Setup debug renderer items
+debugRenderer.addText('fps', {
+  getText: () => `FPS: ${game.stats.fps}`,
+  x: 10, y: 20, color: '#0f0',
+  enabled: () => state.showDebug
+});
+
+debugRenderer.addText('stats', {
+  getText: () => `Entities: ${game.entityManager.getCount()} | Draw calls: ${game.renderer.getRenderItemCount()}`,
+  x: 10, y: 36, color: '#fff',
+  enabled: () => state.showDebug
+});
+
+debugRenderer.addText('player', {
+  getText: () => {
+    const player = game.entityManager.getEntity('player');
+    return player ? `Player: (${player.col}, ${player.row})` : 'Player: (0, 0)';
+  },
+  x: 10, y: 52, color: '#4a90d9',
+  enabled: () => state.showDebug
+});
+
+debugRenderer.addText('camera', {
+  getText: () => `Camera: (${game.renderer.camera.offsetX.toFixed(0)}, ${game.renderer.camera.offsetY.toFixed(0)}) zoom:${game.renderer.camera.scale.toFixed(2)}`,
+  x: 10, y: 68, color: '#aaa',
+  enabled: () => state.showDebug
+});
+
+debugRenderer.addText('mouse', {
+  getText: () => {
+    const mx = state.mouse.x ?? 0;
+    const my = state.mouse.y ?? 0;
+    if (!game.inputManager) return `Mouse: Screen(${mx.toFixed(0)}, ${my.toFixed(0)})`;
+    const mouseInfo = game.inputManager.getMouseGridPosition(6, 6);
+    return `Mouse: Screen(${mx.toFixed(0)}, ${my.toFixed(0)}) Grid(${mouseInfo.col}, ${mouseInfo.row}) L${mouseInfo.layer}`;
+  },
+  x: 10, y: 84, color: '#ff0',
+  enabled: () => state.showDebug
+});
+
+debugRenderer.addTileHighlight('mouse', {
+  getTile: () => {
+    if (!game.inputManager) return { col: 0, row: 0 };
+    const mouseInfo = game.inputManager.getMouseGridPosition(6, 6);
+    return { col: mouseInfo.col, row: mouseInfo.row };
+  },
+  color: '#ff0',
+  lineWidth: 2,
+  alpha: 0.4,
+  enabled: () => state.showDebug
+});
+
+debugRenderer.addText('layers', {
+  getText: () => {
+    const s = layerManager ? layerManager.getLayerStats(0) : null;
+    return `Layers: ${CONFIG.layerCount} | Parallax: ${(s?.parallax ?? 0.7).toFixed(1)} | Z-Step: ${Math.round(s?.zIndexOffset ?? 30)}`;
+  },
+  x: 10, y: 100, color: '#96ceb4',
+  enabled: () => state.showDebug
+});
+
+// Track mouse position for debug display
+const canvas = document.getElementById('gameCanvas');
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  state.mouse.x = e.clientX - rect.left;
+  state.mouse.y = e.clientY - rect.top;
+});
 
 // ==================== Setup Map ====================
 for (let c = 0; c < CONFIG.mapSize; c++) {
@@ -164,8 +243,9 @@ uiManager.bindButton('btnGrid', () => {
 }, { toggle: true, activeClass: 'active' });
 
 uiManager.bindButton('btnDebug', () => {
-  showDebug = !showDebug;
-  document.getElementById('btnDebug').textContent = `🐛 Debug: ${showDebug ? 'ON' : 'OFF'}`;
+  state.showDebug = !state.showDebug;
+  document.getElementById('btnDebug').textContent = `🐛 Debug: ${state.showDebug ? 'ON' : 'OFF'}`;
+  game.log?.info(`Debug ${state.showDebug ? 'enabled' : 'disabled'}`);
 }, { toggle: true });
 
 uiManager.bindButton('btnClouds', () => regenerateClouds());
@@ -232,7 +312,15 @@ function updateLayerList() {
 
 // ==================== Render Hook ====================
 game.renderHooks = {
-  onBeforePresent: () => { updateLayerList(); }
+  onAfterLayers: (ctx) => {
+    // Render debug items when enabled
+    if (state.showDebug) {
+      debugRenderer.render(ctx, game.gridSystem, game.renderer.camera, game.projection);
+    }
+  },
+  onBeforePresent: () => { 
+    updateLayerList();
+  }
 };
 
 // ==================== Start Game ====================
