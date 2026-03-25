@@ -173,32 +173,37 @@ export class InputManager {
   }
 
   /**
-   * Convert screen coordinates to world coordinates
+   * Convert screen coordinates to world coordinates using the engine's canonical
+   * IsoCamera.screenToWorld + Projection.screenToWorld pipeline.
+   *
+   * The old hand-rolled inverse-isometric formula was incorrect:
+   *  - It used a hard-coded 30° angle and forgot to divide by tileScale, causing
+   *    coordinate drift proportional to tileScale (cellSize / something).
+   *  - It also applied the camera offset before the projection inverse, which is
+   *    the wrong order.
+   *
    * @param screenX - Screen X coordinate (relative to canvas, 0 to canvas.width)
    * @param screenY - Screen Y coordinate (relative to canvas, 0 to canvas.height)
    * @param parallaxFactor - Parallax factor for coordinate conversion
    */
   public screenToWorld(screenX: number, screenY: number, parallaxFactor: number = 1.0): { x: number; y: number } {
-    // screenX/screenY are already relative to canvas (from mouse event clientX - rect.left)
-    const adjX = (screenX - this.canvas.width / 2 - this.camera.offsetX * parallaxFactor) / this.camera.scale;
-    const adjY = (screenY - this.canvas.height / 2 - this.camera.offsetY * parallaxFactor) / this.camera.scale;
-    
-    const COS_THETA = Math.cos(30 * Math.PI / 180);
-    const SIN_THETA = Math.sin(30 * Math.PI / 180);
-    
-    const worldX = (adjX / COS_THETA + adjY / SIN_THETA) / 2;
-    const worldY = (adjY / SIN_THETA - adjX / COS_THETA) / 2;
-    
-    return { x: worldX, y: worldY };
+    // Delegate to IsoCamera which correctly:
+    //   1. Subtracts canvas center
+    //   2. Removes camera offset (scaled by parallaxFactor)
+    //   3. Divides by camera.scale
+    //   4. Calls Projection.screenToWorld for the proper inverse transform
+    const world = this.camera.screenToWorld(screenX, screenY, this.projection, parallaxFactor);
+    return { x: world.x, y: world.y };
   }
 
   /**
-   * Convert world coordinates to grid coordinates
+   * Convert world coordinates to grid coordinates.
+   * Uses cellSize (= tileW = tileH) which matches GridSystem configuration.
    */
   public worldToGrid(worldX: number, worldY: number): { col: number; row: number } {
     return {
-      col: Math.round(worldX / this.cellSize),
-      row: Math.round(worldY / this.cellSize)
+      col: Math.floor(worldX / this.cellSize),
+      row: Math.floor(worldY / this.cellSize)
     };
   }
 
@@ -314,7 +319,8 @@ export class InputManager {
     // Use actual player position (updated via setPlayerPosition) for parallax calculation.
     // Using (0,0) when the player is far from the origin causes click-coordinate drift.
     const playerParallax = this.getPlayerLayerParallax(this.playerCol, this.playerRow);
-    const world = this.screenToWorld(screenX, screenY, playerParallax);
+    // Use the canonical pipeline: camera.screenToWorld → Projection.screenToWorld
+    const world = this.camera.screenToWorld(screenX, screenY, this.projection, playerParallax);
     const grid = this.worldToGrid(world.x, world.y);
     
     this.eventBus.emit('click', {

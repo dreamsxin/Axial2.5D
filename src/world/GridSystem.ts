@@ -144,11 +144,16 @@ export class GridSystem {
   }
 
   /**
-   * Convert world coordinates to grid coordinates
+   * Convert world coordinates to grid coordinates.
+   * Uses Math.floor because gridToWorld(col, row) returns the top-left corner of the tile
+   * at (col * tileW, row * tileH). A point anywhere inside the tile satisfies:
+   *   col * tileW <= x < (col+1) * tileW  →  col = floor(x / tileW)
+   * Math.round would shift the boundary to the middle of the tile, causing the highlight
+   * to jump to the next tile while the cursor is still in the first half of the current one.
    */
   public worldToGrid(x: number, z: number): GridCoord {
-    const col = Math.round(x / this.tileW);
-    const row = Math.round(z / this.tileH);
+    const col = Math.floor(x / this.tileW);
+    const row = Math.floor(z / this.tileH);
     return { col, row };
   }
 
