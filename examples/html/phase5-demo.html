@@ -212,8 +212,37 @@ game.log?.success(`Added ${buildings.length + 1} entities`);
 // ==================== Setup Effects (Phase 5 Builder API) ====================
 function regenerateClouds() {
   effectSystem.clear();
-  effectSystem.addClouds(6, { layer: 4, sizeRange: [40, 80], color: '#ffffff', mapSize: CONFIG.mapSize });
-  effectSystem.addClouds(2, { layer: 2, sizeRange: [35, 60], color: '#4ecdc4', mapSize: CONFIG.mapSize });
+  
+  // Layer 4: White clouds (6 clouds)
+  effectSystem.addClouds(6, { 
+    layer: 4, 
+    sizeRange: [40, 80], 
+    color: '#ffffff', 
+    mapSize: CONFIG.mapSize 
+  });
+  
+  // Layer 2-3: Colored clouds (2-3 clouds per layer)
+  effectSystem.addClouds(2, { 
+    layer: 2, 
+    sizeRange: [35, 60], 
+    color: '#4ecdc4', 
+    mapSize: CONFIG.mapSize 
+  });
+  
+  effectSystem.addClouds(2, { 
+    layer: 1, 
+    sizeRange: [30, 55], 
+    color: '#ff6b6b', 
+    mapSize: CONFIG.mapSize 
+  });
+  
+  effectSystem.addClouds(2, { 
+    layer: 3, 
+    sizeRange: [35, 60], 
+    color: '#45b7d1', 
+    mapSize: CONFIG.mapSize 
+  });
+  
   game.log?.success(`☁️ Generated ${effectSystem.getCount()} clouds`);
 }
 
