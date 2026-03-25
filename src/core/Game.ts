@@ -76,7 +76,7 @@ export class Game {
   private lastTime: number = 0;
   private canvas: HTMLCanvasElement | OffscreenCanvas;
   private moduleConfig?: ModuleConfig;
-  private renderOptions: {
+  private _renderOptions: {
     layerCount?: number;
     showGrid?: boolean;
     foregroundAlpha?: number;
@@ -91,6 +91,11 @@ export class Game {
     parallaxRange: 0.7,
     maxDepth: 2000
   };
+  
+  // Phase 6: Getter for render options (for toggleButton)
+  public get renderOptions() {
+    return this._renderOptions;
+  }
   public onBeforeRender?: (ctx: CanvasRenderingContext2D) => void;
   public onAfterRender?: (ctx: CanvasRenderingContext2D) => void;
   public renderHooks?: {
@@ -468,14 +473,14 @@ export class Game {
     parallaxRange?: number;
     maxDepth?: number;
   }): void {
-    this.renderOptions = { ...this.renderOptions, ...options };
+    this._renderOptions = { ...this._renderOptions, ...options };
   }
 
   /**
    * Get current render options
    */
-  public getRenderOptions(): typeof this.renderOptions {
-    return { ...this.renderOptions };
+  public getRenderOptions(): typeof this._renderOptions {
+    return { ...this._renderOptions };
   }
 
   /**

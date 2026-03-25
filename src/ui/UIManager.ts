@@ -108,6 +108,59 @@ export class UIManager {
   }
 
   /**
+   * Toggle button with automatic state management (Phase 6)
+   * Automatically maintains state and updates button text/class
+   */
+  public toggleButton(
+    buttonId: string,
+    options: {
+      getState: () => boolean;
+      onToggle: (state: boolean) => void;
+      getText?: (state: boolean) => string;
+      activeClass?: string;
+    }
+  ): void {
+    if (typeof document === 'undefined') return;
+
+    const button = document.getElementById(buttonId);
+    if (!button) {
+      console.warn(`UIManager: Button "${buttonId}" not found`);
+      return;
+    }
+
+    // Initial button state
+    const initialState = options.getState();
+    if (options.getText) {
+      button.textContent = options.getText(initialState);
+    }
+    if (options.activeClass && initialState) {
+      button.classList.add(options.activeClass);
+    }
+
+    button.addEventListener('click', () => {
+      const currentState = options.getState();
+      const newState = !currentState;
+      
+      // Update state via callback
+      options.onToggle(newState);
+      
+      // Update button text
+      if (options.getText) {
+        button.textContent = options.getText(newState);
+      }
+      
+      // Update active class
+      if (options.activeClass) {
+        if (newState) {
+          button.classList.add(options.activeClass);
+        } else {
+          button.classList.remove(options.activeClass);
+        }
+      }
+    });
+  }
+
+  /**
    * Bind a slider to a handler
    */
   public bindSlider(

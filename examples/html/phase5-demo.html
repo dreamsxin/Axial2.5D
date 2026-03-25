@@ -241,22 +241,22 @@ uiManager.addLayerList('layerList', {
   showStats: ['tiles', 'entities', 'clouds']
 });
 
-// ==================== Button Bindings (Phase 5) ====================
-let showGrid = true, showDebug = false;
+// Toggle buttons (Phase 6 - automatic state management)
+uiManager.toggleButton('btnGrid', {
+  getState: () => game.renderOptions.showGrid,
+  onToggle: (state) => {
+    game.setRenderOptions({ showGrid: state });
+    game.log?.info(`Grid ${state ? 'enabled' : 'disabled'}`);
+  },
+  getText: (state) => `📐 Grid: ${state ? 'ON' : 'OFF'}`,
+  activeClass: 'active'
+});
 
-uiManager.bindButton('btnGrid', () => {
-  showGrid = !showGrid;
-  document.getElementById('btnGrid').textContent = `📐 Grid: ${showGrid ? 'ON' : 'OFF'}`;
-  document.getElementById('btnGrid').classList.toggle('active', showGrid);
-  game.setRenderOptions({ showGrid });
-  game.log?.info(`Grid ${showGrid ? 'enabled' : 'disabled'}`);
-}, { toggle: true, activeClass: 'active' });
-
-uiManager.bindButton('btnDebug', () => {
-  state.showDebug = !state.showDebug;
-  document.getElementById('btnDebug').textContent = `🐛 Debug: ${state.showDebug ? 'ON' : 'OFF'}`;
-  game.log?.info(`Debug ${state.showDebug ? 'enabled' : 'disabled'}`);
-}, { toggle: true });
+uiManager.toggleButton('btnDebug', {
+  getState: () => state.showDebug,
+  onToggle: (state) => { state.showDebug = state; },
+  getText: (state) => `🐛 Debug: ${state ? 'ON' : 'OFF'}`
+});
 
 uiManager.bindButton('btnClouds', () => regenerateClouds());
 
