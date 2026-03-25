@@ -248,4 +248,124 @@ export class EffectSystem {
     }
     return counts;
   }
+
+  // ==================== Effect Builder API (Phase 5) ====================
+
+  /**
+   * Add a cloud effect with simplified API
+   */
+  public addCloud(options: {
+    col: number;
+    row: number;
+    layer?: number;
+    size?: number;
+    color?: string;
+    alpha?: number;
+    offsetY?: number;
+    id?: string;
+  }): string {
+    const id = options.id || `cloud_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    this.addEffect({
+      id,
+      type: 'cloud',
+      col: options.col,
+      row: options.row,
+      layer: options.layer ?? 4,
+      size: options.size ?? 50,
+      color: options.color ?? '#ffffff',
+      alpha: options.alpha ?? 0.9,
+      offsetY: options.offsetY ?? -50
+    });
+    return id;
+  }
+
+  /**
+   * Add multiple cloud effects at once
+   */
+  public addClouds(count: number, options: {
+    layer?: number;
+    sizeRange?: [number, number];
+    color?: string;
+    alpha?: number;
+    offsetY?: number;
+    mapSize?: number;
+  }): string[] {
+    const ids: string[] = [];
+    const mapSize = options.mapSize ?? 12;
+    const sizeRange = options.sizeRange ?? [40, 80];
+
+    for (let i = 0; i < count; i++) {
+      const id = this.addCloud({
+        col: Math.floor(Math.random() * (mapSize - 2)) + 1,
+        row: Math.floor(Math.random() * (mapSize - 2)) + 1,
+        layer: options.layer ?? 4,
+        size: sizeRange[0] + Math.random() * (sizeRange[1] - sizeRange[0]),
+        color: options.color,
+        alpha: options.alpha,
+        offsetY: options.offsetY
+      });
+      ids.push(id);
+    }
+
+    return ids;
+  }
+
+  /**
+   * Add a particle emitter effect
+   */
+  public addParticleEmitter(options: {
+    col: number;
+    row: number;
+    layer?: number;
+    count?: number;
+    size?: number;
+    color?: string;
+    spread?: number;
+    lifetime?: number;
+    offsetY?: number;
+  }): string {
+    const id = `particle_emitter_${Date.now()}`;
+    const count = options.count ?? 10;
+    const spread = options.spread ?? 1;
+
+    for (let i = 0; i < count; i++) {
+      const particleId = `${id}_particle_${i}`;
+      this.addEffect({
+        id: particleId,
+        type: 'particle',
+        col: options.col + (Math.random() - 0.5) * spread,
+        row: options.row + (Math.random() - 0.5) * spread,
+        layer: options.layer ?? 4,
+        size: options.size ?? 10,
+        color: options.color ?? '#ffff00',
+        alpha: 0.8,
+        offsetY: options.offsetY ?? -20,
+        lifetime: options.lifetime ?? 2000
+      });
+    }
+
+    return id;
+  }
+
+  /**
+   * Remove all effects of a specific type
+   */
+  public removeByType(type: string): void {
+    for (const [id, effect] of this.effects.entries()) {
+      if (effect.type === type) {
+        this.effects.delete(id);
+      }
+    }
+  }
+
+  /**
+   * Remove all effects in a specific layer
+   */
+  public removeByLayer(layer: number): void {
+    for (const [id, effect] of this.effects.entries()) {
+      if (effect.layer === layer) {
+        this.effects.delete(id);
+      }
+    }
+  }
 }

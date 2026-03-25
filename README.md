@@ -4,6 +4,26 @@
 
 A Canvas 2D API isometric/dimetric game framework.
 
+## 🎉 Phase 5 已完成！
+
+**应用代码减少 57%** - 从 ~350 行精简至 ~150 行！
+
+```typescript
+const game = new Game({
+  width: 800,
+  height: 600,
+  modules: {
+    layerManager: { enabled: true },
+    cameraController: { enabled: true, followEntity: 'player' },
+    occlusionSystem: { enabled: true },
+    effectSystem: { enabled: true },
+    uiManager: { enabled: true, autoUpdate: true }
+  }
+});
+```
+
+详见：[docs/PHASE5_COMPLETE.md](./docs/PHASE5_COMPLETE.md)
+
 ## 📁 项目结构 Project Structure
 
 ```
@@ -69,7 +89,9 @@ npm install
 npm run dev
 ```
 
-**访问：** http://localhost:3001/examples/html/framework.html
+**访问：** 
+- Phase 5 示例：http://localhost:3001/examples/html/phase5-demo.html ⭐ **推荐**
+- Framework 示例：http://localhost:3001/examples/html/framework.html
 
 **特点：**
 - 使用框架 API 编写
@@ -106,6 +128,49 @@ npm install axial-2-5d
 
 ### 2. 基础示例 Basic Example
 
+#### Phase 5 简化版（推荐）
+
+```typescript
+import { Game } from 'axial-2-5d';
+
+// 配置化创建游戏（Phase 5）
+const game = new Game({
+  width: 800,
+  height: 600,
+  modules: {
+    layerManager: { enabled: true, layerCount: 5 },
+    cameraController: { enabled: true, followEntity: 'player', smoothness: 0.1 },
+    occlusionSystem: { enabled: true },
+    effectSystem: { enabled: true },
+    uiManager: { enabled: true, autoUpdate: true, logElementId: 'log' }
+  }
+});
+
+// 初始化地图
+game.init({
+  width: 12,
+  height: 12,
+  tileW: 50,
+  tileH: 50,
+  tiles: []
+});
+
+// 访问模块
+const { effectSystem, uiManager } = game.modules;
+
+// 使用构建器 API 添加云效果
+effectSystem.addClouds(8, { layer: 4, sizeRange: [40, 80] });
+
+// UI 绑定
+uiManager.bindText('fps', () => game.stats.fps);
+uiManager.bindButton('btnGrid', () => toggleGrid(), { toggle: true });
+
+// 启动游戏
+game.start();
+```
+
+#### 传统方式（仍支持）
+
 ```typescript
 import { Game, LayerManager, Projection } from 'axial-2-5d';
 
@@ -125,17 +190,18 @@ const mapData = {
   height: 12,
   tileW: 50,
   tileH: 50,
-  tiles: [] // 填充地图数据
+  tiles: []
 };
 
 // 初始化游戏
 game.init(mapData);
 
-// 创建图层系统
-const layers = game.layerManager.createStandardLayers(0, 2000, 5, {
-  zIndexStep: 30,        // Z 轴间距
-  parallaxRange: 0.7,    // 视差范围 (0.0-1.0)
-  foregroundAlpha: 0.6   // 前景透明度
+// 手动创建图层系统
+const layerManager = new LayerManager({
+  layerCount: 5,
+  foregroundAlpha: 0.6,
+  zIndexStep: 30,
+  parallaxRange: 0.7
 });
 
 // 启动游戏

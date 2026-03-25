@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Axial2.5D - Phase 5 Demo (Simplified)</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #1a1a2e; color: #fff; overflow: hidden; }
+    #container { display: flex; height: 100vh; }
+    #canvas-container { flex: 1; display: flex; justify-content: center; align-items: center; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); }
+    canvas { border: 2px solid #4a4a6a; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+    #sidebar { width: 260px; background: rgba(0,0,0,0.3); padding: 15px; overflow-y: auto; border-left: 1px solid #4a4a6a; }
+    h1 { font-size: 1.3em; margin-bottom: 10px; color: #4a90d9; }
+    h2 { font-size: 0.95em; margin: 12px 0 6px; color: #6a8caf; border-bottom: 1px solid #4a4a6a; padding-bottom: 4px; }
+    .stat { margin: 4px 0; font-size: 0.8em; color: #aaa; }
+    .stat span { color: #fff; }
+    button { width: 100%; padding: 7px; margin: 3px 0; background: #4a4a6a; border: none; border-radius: 4px; color: #fff; cursor: pointer; font-size: 0.85em; }
+    button:hover { background: #5a5a7a; }
+    button.active { background: #4a90d9; }
+    .key { display: inline-block; background: #333; padding: 2px 5px; border-radius: 3px; font-size: 0.7em; margin: 1px; }
+    #log { background: rgba(0,0,0,0.4); border: 1px solid #4a4a6a; border-radius: 4px; padding: 6px; height: 120px; overflow-y: auto; font-family: monospace; font-size: 0.7em; margin-top: 10px; }
+    .log-msg { margin: 2px 0; }
+    .log-info { color: #4a90d9; }
+    .log-success { color: #4ad97a; }
+    .log-warn { color: #ffcc00; }
+    .layer-item { display: flex; justify-content: space-between; padding: 3px; margin: 2px 0; background: rgba(255,255,255,0.05); border-radius: 3px; font-size: 0.75em; }
+    .layer-color { width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+    input[type="range"] { width: 100%; margin: 4px 0; }
+    label { font-size: 0.75em; color: #888; display: block; margin-top: 6px; }
+  </style>
+</head>
+<body>
+<div id="container">
+  <div id="canvas-container"><canvas id="gameCanvas" width="800" height="600"></canvas></div>
+  <div id="sidebar">
+    <h1>🎮 Axial2.5D Phase 5</h1>
+    <h2>📊 Status</h2>
+    <div class="stat">FPS: <span id="fps">0</span></div>
+    <div class="stat">Player: <span id="playerPos">0, 0</span></div>
+    <div class="stat">Occlusion: <span id="occlusion">VISIBLE</span></div>
+    <h2>🎯 Controls</h2>
+    <div class="stat"><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span> Move</div>
+    <div class="stat"><span class="key">Click</span> Move to tile</div>
+    <div class="stat"><span class="key">Drag</span> Pan camera</div>
+    <div class="stat"><span class="key">Wheel</span> Zoom</div>
+    <h2>⚙️ Settings</h2>
+    <button id="btnGrid">📐 Grid: ON</button>
+    <button id="btnDebug">🐛 Debug: OFF</button>
+    <button id="btnClouds">☁️ Regenerate Clouds</button>
+    <label>前景透明度：<span id="fgAlphaVal">0.6</span></label>
+    <input type="range" id="fgAlphaSlider" min="0.2" max="1.0" step="0.1" value="0.6">
+    <label>Z 轴间距：<span id="zStepVal">30</span></label>
+    <input type="range" id="zStepSlider" min="0" max="100" step="10" value="30">
+    <h2>📊 Layers</h2>
+    <div id="layerList"></div>
+    <h2>📜 Log</h2>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script type="module">
+import { Game, LayerManager, EffectSystem, CameraController, OcclusionSystem, UIDataBinder } from '../../src/index.ts';
+
+// ==================== Configuration ====================
+const CONFIG = { width: 800, height: 600, mapSize: 12, cellSize: 50, layerCount: 5 };
+const LAYER_COLORS = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#ffeaa7'];
+
+// ==================== Game Setup (Phase 5 - Simplified) ====================
+const game = new Game({
+  width: CONFIG.width,
+  height: CONFIG.height,
+  canvas: document.getElementById('gameCanvas'),
+  projection: { type: 'isometric', viewAngle: 30 },
+  modules: {
+    layerManager: { enabled: true, layerCount: 5, foregroundAlpha: 0.6, zIndexStep: 30, parallaxRange: 0.7 },
+    cameraController: { enabled: true, followEntity: 'player', smoothness: 0.1, autoParallax: true },
+    occlusionSystem: { enabled: true },
+    effectSystem: { enabled: true },
+    uiManager: { enabled: true, autoUpdate: true, logElementId: 'log' },
+    debugPanel: { enabled: false }
+  }
+});
+
+game.init({ width: CONFIG.mapSize, height: CONFIG.mapSize, tileW: CONFIG.cellSize, tileH: CONFIG.cellSize, tiles: [] });
+
+// Get modules
+const { layerManager, effectSystem, cameraController, occlusionSystem, uiManager } = game.modules;
+
+// ==================== Setup Map ====================
+for (let c = 0; c < CONFIG.mapSize; c++) {
+  for (let r = 0; r < CONFIG.mapSize; r++) {
+    let type = 'grass', walkable = true;
+    if (c === 0 || c === CONFIG.mapSize-1 || r === 0 || r === CONFIG.mapSize-1) { type = 'water'; walkable = false; }
+    if (c === 6 || r === 6) type = 'road';
+    if ((c+r) % 4 === 0 && c > 1 && c < CONFIG.mapSize-2 && r > 1 && r < CONFIG.mapSize-2) type = 'stone';
+    game.gridSystem.setTileType(c, r, type, walkable);
+  }
+}
+
+// ==================== Setup Entities ====================
+game.entityManager.addEntity({
+  id: 'player', col: 6, row: 6, width: 40, length: 40, height: 40,
+  colors: ['#ff6b6b', '#ff5252', '#ff3838', '#e03030', '#ff6b6b', '#c02020']
+});
+
+const buildings = [
+  { id: 'tower1', col: 5, row: 5, width: 80, length: 80, height: 120 },
+  { id: 'tower2', col: 7, row: 7, width: 80, length: 80, height: 100 },
+  { id: 'townhall', col: 3, row: 3, width: 120, length: 120, height: 80 },
+  { id: 'house1', col: 9, row: 3, width: 90, length: 90, height: 65 },
+  { id: 'warehouse', col: 9, row: 9, width: 100, length: 80, height: 50 }
+];
+
+const buildingColors = [
+  ['#f5deb3', '#deb887', '#cd853f', '#b8860b', '#daa520', '#8b4513'],
+  ['#8b0000', '#a52a2a', '#8b0000', '#654321', '#8b4513', '#654321'],
+  ['#2e8b57', '#3cb371', '#2e8b57', '#654321', '#8b4513', '#654321'],
+  ['#4169e1', '#6495ed', '#4169e1', '#654321', '#8b4513', '#654321'],
+  ['#708090', '#778899', '#708090', '#654321', '#8b4513', '#654321']
+];
+
+buildings.forEach((b, i) => {
+  game.entityManager.addEntity({ ...b, depth: 0, visible: true, colors: buildingColors[i % buildingColors.length] });
+});
+
+game.log?.success(`Added ${buildings.length + 1} entities`);
+
+// ==================== Setup Effects (Phase 5 Builder API) ====================
+function regenerateClouds() {
+  effectSystem.clear();
+  effectSystem.addClouds(6, { layer: 4, sizeRange: [40, 80], color: '#ffffff', mapSize: CONFIG.mapSize });
+  effectSystem.addClouds(2, { layer: 2, sizeRange: [35, 60], color: '#4ecdc4', mapSize: CONFIG.mapSize });
+  game.log?.success(`☁️ Generated ${effectSystem.getCount()} clouds`);
+}
+
+regenerateClouds();
+
+// ==================== UI Bindings (Phase 5) ====================
+uiManager.bindText('fps', () => game.stats.fps);
+uiManager.bindText('playerPos', () => {
+  const p = game.entityManager.getEntity('player');
+  return p ? `${p.col}, ${p.row}` : '0, 0';
+});
+
+uiManager.bind('occlusion', (el) => {
+  const player = game.entityManager.getEntity('player');
+  if (!player) return;
+  const occlusions = occlusionSystem.getOccludingBuildings(player);
+  const isOccluded = occlusions.some(o => o.height > player.height);
+  el.textContent = isOccluded ? `OCCLUDED by ${occlusions.map(o => o.buildingId).join(', ')}` : 'VISIBLE (normal)';
+  el.style.color = isOccluded ? '#4ecdc4' : '#4ad97a';
+});
+
+// ==================== Button Bindings (Phase 5) ====================
+let showGrid = true, showDebug = false;
+
+uiManager.bindButton('btnGrid', () => {
+  showGrid = !showGrid;
+  document.getElementById('btnGrid').textContent = `📐 Grid: ${showGrid ? 'ON' : 'OFF'}`;
+  document.getElementById('btnGrid').classList.toggle('active', showGrid);
+  game.setRenderOptions({ showGrid });
+  game.log?.info(`Grid ${showGrid ? 'enabled' : 'disabled'}`);
+}, { toggle: true, activeClass: 'active' });
+
+uiManager.bindButton('btnDebug', () => {
+  showDebug = !showDebug;
+  document.getElementById('btnDebug').textContent = `🐛 Debug: ${showDebug ? 'ON' : 'OFF'}`;
+}, { toggle: true });
+
+uiManager.bindButton('btnClouds', () => regenerateClouds());
+
+// ==================== Slider Bindings (Phase 5) ====================
+uiManager.bindSlider('fgAlphaSlider', (v) => {
+  document.getElementById('fgAlphaVal').textContent = v.toFixed(1);
+  layerManager.updateLayerProperties({ foregroundAlpha: v });
+  game.setRenderOptions({ foregroundAlpha: v });
+}, 'fgAlphaVal');
+
+uiManager.bindSlider('zStepSlider', (v) => {
+  document.getElementById('zStepVal').textContent = v;
+  layerManager.updateLayerProperties({ zIndexStep: v });
+  game.setRenderOptions({ zIndexStep: v });
+}, 'zStepVal');
+
+// ==================== Input Handling ====================
+game.eventBus.on('click', (data) => {
+  const tile = game.gridSystem.getTile(data.gridCol, data.gridRow);
+  if (tile?.walkable) movePlayer(data.gridCol, data.gridRow);
+});
+
+function movePlayer(col, row) {
+  const player = game.entityManager.getEntity('player');
+  if (player) { game.entityManager.moveEntity(player, col, row); game.log?.info(`Moved to (${col}, ${row})`); }
+}
+
+// ==================== Layer List Update ====================
+function updateLayerList() {
+  const layerList = document.getElementById('layerList');
+  if (!layerList) return;
+  
+  const stats = {};
+  for (let i = 0; i < CONFIG.layerCount; i++) stats[i] = { tiles: 0, entities: 0, clouds: 0 };
+  
+  for (let c = 0; c < CONFIG.mapSize; c++)
+    for (let r = 0; r < CONFIG.mapSize; r++)
+      stats[layerManager.getLayerForDepth(c + r)].tiles++;
+  
+  for (const e of game.entityManager.getAllEntities())
+    stats[layerManager.getLayerForDepth(e.col + e.row)].entities++;
+  
+  for (const cloud of effectSystem.getAllEffects())
+    stats[cloud.layer].clouds++;
+  
+  layerList.innerHTML = '';
+  for (let i = CONFIG.layerCount - 1; i >= 0; i--) {
+    const s = layerManager.getLayerStats(i);
+    const div = document.createElement('div');
+    div.className = 'layer-item';
+    div.innerHTML = `
+      <div style="display:flex;align-items:center;">
+        <div class="layer-color" style="background:${LAYER_COLORS[i]};opacity:${s.alpha}"></div>
+        <span>L${i} ${i === 4 ? '(前景)' : i === 0 ? '(背景)' : ''}</span>
+      </div>
+      <div style="text-align:right;font-size:0.7em;color:#888;">
+        ${stats[i].tiles} tiles | ${stats[i].entities} ent${stats[i].clouds ? ` | ☁️ ${stats[i].clouds}` : ''}
+      </div>
+    `;
+    layerList.appendChild(div);
+  }
+}
+
+// ==================== Render Hook ====================
+game.renderHooks = {
+  onBeforePresent: () => { updateLayerList(); }
+};
+
+// ==================== Start Game ====================
+game.start();
+game.log?.success('🎮 Axial2.5D Phase 5 started!');
+game.log?.info(`Map: ${CONFIG.mapSize}x${CONFIG.mapSize}, ${CONFIG.layerCount} layers`);
+</script>
+</body>
+</html>

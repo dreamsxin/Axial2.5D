@@ -1,9 +1,16 @@
 /**
  * UIManager - Manages 2D UI components overlay
+ * 
+ * Provides UI component management and data binding helpers:
+ * - Component lifecycle (add/remove/show/hide)
+ * - Button binding with toggle support
+ * - Slider binding with display update
+ * - Logger attachment to DOM elements
  */
 
 import { EventBus } from '../utils/EventBus';
 import { InputManager } from '../input/InputManager';
+import { Logger } from './Logger';
 
 export interface UIComponent {
   id: string;
@@ -21,9 +28,122 @@ export class UIManager {
   private modalStack: UIComponent[] = [];
   private eventBus: EventBus;
   private inputManager: InputManager | null = null;
+  private log: Logger | null = null;
+  private buttonBindings: Map<string, { handler: () => void; toggle?: boolean; label?: { on: string; off: string }; activeClass?: string }> = new Map();
+  private sliderBindings: Map<string, { onChange: (value: number) => void; displayId?: string }> = new Map();
 
   constructor(eventBus: EventBus) {
     this.eventBus = eventBus;
+  }
+
+  /**
+   * Get the logger instance (created on first access)
+   */
+  public get logger(): Logger {
+    if (!this.log) {
+      this.log = new Logger();
+    }
+    return this.log;
+  }
+
+  /**
+   * Attach logger to a DOM element
+   */
+  public attachLogToElement(elementId: string, maxLines?: number): void {
+    this.logger.attachToElement(elementId, maxLines);
+  }
+
+  /**
+   * Bind a button to a handler
+   */
+  public bindButton(
+    buttonId: string,
+    handler: () => void,
+    options?: {
+      toggle?: boolean;
+      label?: { on: string; off: string };
+      activeClass?: string;
+    }
+  ): void {
+    if (typeof document === 'undefined') return;
+
+    const button = document.getElementById(buttonId);
+    if (!button) {
+      console.warn(`UIManager: Button "${buttonId}" not found`);
+      return;
+    }
+
+    const state = { active: false };
+
+    button.addEventListener('click', () => {
+      if (options?.toggle) {
+        state.active = !state.active;
+        
+        // Update label if provided
+        if (options.label) {
+          button.textContent = state.active ? options.label.on : options.label.off;
+        }
+        
+        // Update active class if provided
+        if (options.activeClass) {
+          if (state.active) {
+            button.classList.add(options.activeClass);
+          } else {
+            button.classList.remove(options.activeClass);
+          }
+        }
+      }
+      
+      handler();
+    });
+
+    this.buttonBindings.set(buttonId, {
+      handler,
+      toggle: options?.toggle,
+      label: options?.label,
+      activeClass: options?.activeClass
+    });
+  }
+
+  /**
+   * Bind a slider to a handler
+   */
+  public bindSlider(
+    sliderId: string,
+    onChange: (value: number) => void,
+    displayId?: string
+  ): void {
+    if (typeof document === 'undefined') return;
+
+    const slider = document.getElementById(sliderId) as HTMLInputElement;
+    if (!slider) {
+      console.warn(`UIManager: Slider "${sliderId}" not found`);
+      return;
+    }
+
+    const displayEl = displayId ? document.getElementById(displayId) : null;
+
+    slider.addEventListener('input', () => {
+      const value = parseFloat(slider.value);
+      onChange(value);
+      
+      if (displayEl) {
+        displayEl.textContent = value.toString();
+      }
+    });
+
+    this.sliderBindings.set(sliderId, {
+      onChange,
+      displayId
+    });
+  }
+
+  /**
+   * Update all UI bindings (call every frame if needed)
+   */
+  public updateAll(): void {
+    // Currently button/slider bindings are event-driven
+    // This method is here for future reactive bindings
   }
 
   /**

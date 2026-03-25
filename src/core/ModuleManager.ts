@@ -243,7 +243,9 @@ export class ModuleManager {
       // Enable auto-update if configured
       if (cfg.autoUpdate) {
         this.game.renderHooks = this.game.renderHooks || {};
-        this.game.renderHooks.onBeforePresent = () => {
+        const originalBeforePresent = this.game.renderHooks.onBeforePresent;
+        this.game.renderHooks.onBeforePresent = (ctx) => {
+          originalBeforePresent?.(ctx);
           this.modules.uiManager?.updateAll();
         };
       }
@@ -277,10 +279,10 @@ export class ModuleManager {
       if (cfg.showMouseInfo) this.modules.debugPanel.showMouseInfo(true);
 
       // Integrate into render pipeline
-      const originalAfterRender = this.game.renderHooks?.onAfterLayers;
       this.game.renderHooks = this.game.renderHooks || {};
+      const originalAfterLayers = this.game.renderHooks.onAfterLayers;
       this.game.renderHooks.onAfterLayers = (ctx) => {
-        originalAfterRender?.(ctx);
+        originalAfterLayers?.(ctx);
         if (this.modules.debugPanel?.isEnabled()) {
           this.modules.debugPanel.render(ctx);
         }
