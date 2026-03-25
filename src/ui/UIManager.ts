@@ -161,6 +161,79 @@ export class UIManager {
   }
 
   /**
+   * Bind a slider to a configuration key (Phase 6)
+   * Automatically updates config when slider changes
+   */
+  public bindSliderToConfig(
+    sliderId: string,
+    configKey: string,
+    displayId?: string
+  ): void {
+    if (typeof document === 'undefined') return;
+    if (!(this as any).game?.config) {
+      console.warn('UIManager: Game config not available for bindSliderToConfig');
+      return;
+    }
+
+    const slider = document.getElementById(sliderId) as HTMLInputElement;
+    if (!slider) {
+      console.warn(`UIManager: Slider "${sliderId}" not found`);
+      return;
+    }
+
+    const displayEl = displayId ? document.getElementById(displayId) : null;
+    const config = (this as any).game.config;
+
+    // Set initial value from config
+    const initialValue = config.get(configKey);
+    if (initialValue !== undefined) {
+      slider.value = String(initialValue);
+      if (displayEl) {
+        displayEl.textContent = String(initialValue);
+      }
+    }
+
+    slider.addEventListener('input', () => {
+      const value = parseFloat(slider.value);
+      config.set(configKey, value);
+      
+      if (displayEl) {
+        displayEl.textContent = value.toString();
+      }
+    });
+  }
+
+  /**
+   * Bind a toggle button to a configuration key (Phase 6)
+   * Automatically updates config and button state
+   */
+  public toggleButtonForConfig(
+    buttonId: string,
+    configKey: string,
+    options?: {
+      getText?: (state: boolean) => string;
+      activeClass?: string;
+    }
+  ): void {
+    if (typeof document === 'undefined') return;
+    if (!(this as any).game?.config) {
+      console.warn('UIManager: Game config not available for toggleButtonForConfig');
+      return;
+    }
+
+    const config = (this as any).game.config;
+
+    this.toggleButton(buttonId, {
+      getState: () => config.get(configKey) ?? false,
+      onToggle: (state) => {
+        config.set(configKey, state);
+      },
+      getText: options?.getText,
+      activeClass: options?.activeClass
+    });
+  }
+
+  /**
    * Bind a slider to a handler
    */
   public bindSlider(

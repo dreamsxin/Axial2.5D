@@ -141,9 +141,9 @@ export class ModuleManager {
     try {
       this.modules.layerManager = new LayerManager({
         layerCount: cfg.layerCount ?? 5,
-        foregroundAlpha: cfg.foregroundAlpha ?? 0.6,
-        zIndexStep: cfg.zIndexStep ?? 30,
-        parallaxRange: cfg.parallaxRange ?? 0.7,
+        foregroundAlpha: cfg.foregroundAlpha ?? this.game.config?.get('render.foregroundAlpha') ?? 0.6,
+        zIndexStep: cfg.zIndexStep ?? this.game.config?.get('render.zIndexStep') ?? 30,
+        parallaxRange: cfg.parallaxRange ?? this.game.config?.get('render.parallaxRange') ?? 0.7,
         eventBus: this.game.eventBus
       });
       this.game.log?.success('Module: LayerManager initialized');

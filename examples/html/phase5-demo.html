@@ -74,12 +74,19 @@ const state = {
   showDebug: false
 };
 
-// ==================== Game Setup (Phase 5 - Simplified) ====================
+// ==================== Game Setup (Phase 6 - Config System) ====================
 const game = new Game({
   width: CONFIG.width,
   height: CONFIG.height,
   canvas: document.getElementById('gameCanvas'),
   projection: { type: 'isometric', viewAngle: 30 },
+  config: {
+    'render.showGrid': true,
+    'render.foregroundAlpha': 0.6,
+    'render.zIndexStep': 30,
+    'render.parallaxRange': 0.7,
+    'debug.enabled': false
+  },
   modules: {
     layerManager: { enabled: true, layerCount: 5, foregroundAlpha: 0.6, zIndexStep: 30, parallaxRange: 0.7 },
     cameraController: { enabled: true, followEntity: 'player', smoothness: 0.1, autoParallax: true },
@@ -271,42 +278,21 @@ uiManager.addLayerList('layerList', {
 });
 
 // Toggle buttons (Phase 6 - automatic state management)
-uiManager.toggleButton('btnGrid', {
-  getState: () => game.renderOptions.showGrid,
-  onToggle: (state) => {
-    game.setRenderOptions({ showGrid: state });
-    game.log?.info(`Grid ${state ? 'enabled' : 'disabled'}`);
-  },
+uiManager.toggleButtonForConfig('btnGrid', 'render.showGrid', {
   getText: (state) => `📐 Grid: ${state ? 'ON' : 'OFF'}`,
   activeClass: 'active'
 });
 
-uiManager.toggleButton('btnDebug', {
-  getState: () => state.showDebug,
-  onToggle: (newState) => { state.showDebug = newState; },
+uiManager.toggleButtonForConfig('btnDebug', 'debug.enabled', {
   getText: (state) => `🐛 Debug: ${state ? 'ON' : 'OFF'}`
 });
 
 uiManager.bindButton('btnClouds', () => regenerateClouds());
 
-// ==================== Slider Bindings (Phase 5) ====================
-uiManager.bindSlider('fgAlphaSlider', (v) => {
-  document.getElementById('fgAlphaVal').textContent = v.toFixed(1);
-  layerManager.updateLayerProperties({ foregroundAlpha: v });
-  game.setRenderOptions({ foregroundAlpha: v });
-}, 'fgAlphaVal');
-
-uiManager.bindSlider('zStepSlider', (v) => {
-  document.getElementById('zStepVal').textContent = v;
-  layerManager.updateLayerProperties({ zIndexStep: v });
-  game.setRenderOptions({ zIndexStep: v });
-}, 'zStepVal');
-
-uiManager.bindSlider('parallaxRangeSlider', (v) => {
-  document.getElementById('parallaxRangeVal').textContent = v.toFixed(1);
-  layerManager.updateLayerProperties({ parallaxRange: v });
-  game.setRenderOptions({ parallaxRange: v });
-}, 'parallaxRangeVal');
+// ==================== Slider Bindings (Phase 6 - Config System) ====================
+uiManager.bindSliderToConfig('fgAlphaSlider', 'render.foregroundAlpha', 'fgAlphaVal');
+uiManager.bindSliderToConfig('zStepSlider', 'render.zIndexStep', 'zStepVal');
+uiManager.bindSliderToConfig('parallaxRangeSlider', 'render.parallaxRange', 'parallaxRangeVal');
 
 // ==================== Input Handling (Phase 6 - automatic via PlayerController) ====================
 // No manual event handling needed! PlayerController module handles:

@@ -14,6 +14,7 @@ import { SceneManager } from '../scene/SceneManager';
 import { ResourceManager } from '../resource/ResourceManager';
 import { EventBus } from '../utils/EventBus';
 import { ModuleManager, ModuleConfig } from './ModuleManager';
+import { ConfigManager } from './ConfigManager';
 import { MapData, DebugConfig, ProjectionConfig, MapConfig, TileData, SceneConfig } from './types';
 
 export interface GameConfig {
@@ -22,6 +23,11 @@ export interface GameConfig {
   projection?: ProjectionConfig;
   debug?: Partial<DebugConfig>;
   canvas?: HTMLCanvasElement | OffscreenCanvas;
+  
+  // Configuration system (Phase 6)
+  config?: {
+    [key: string]: any;
+  };
   
   // Module system (Phase 5)
   modules?: ModuleConfig;
@@ -72,6 +78,9 @@ export class Game {
   // Logger (Phase 5)
   public log: any = null;
 
+  // Configuration system (Phase 6)
+  public config: ConfigManager;
+
   private running: boolean = false;
   private lastTime: number = 0;
   private canvas: HTMLCanvasElement | OffscreenCanvas;
@@ -109,6 +118,9 @@ export class Game {
   constructor(config: GameConfig) {
     // Initialize event bus first
     this.eventBus = new EventBus();
+
+    // Initialize configuration system (Phase 6)
+    this.config = new ConfigManager(config.config);
 
     // Store module config for later initialization
     this.moduleConfig = config.modules;

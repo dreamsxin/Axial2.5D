@@ -81,6 +81,8 @@ export type { DebugPanelConfig } from './debug/DebugPanel';
 // Module System (Phase 5)
 export { ModuleManager } from './core/ModuleManager';
 export type { ModuleConfig, GameModules } from './core/ModuleManager';
+export { ConfigManager } from './core/ConfigManager';
+export type { ConfigManagerConfig, ConfigValue, ConfigChangeListener } from './core/ConfigManager';
 
 // Camera types
 export type { ScreenPoint3D, WorldPoint3D } from './core/IsoCamera';
