@@ -18,8 +18,6 @@ export * from './core/types';
 // World
 export { GridSystem, TileRenderItem } from './world/GridSystem';
 export { EntityManager, BasicEntity } from './world/EntityManager';
-export { OcclusionSystem } from './world/OcclusionSystem';
-export type { OcclusionConfig, OcclusionData } from './world/OcclusionSystem';
 export { PathFinder } from './world/PathFinder';
 export { IsoPrimitive } from './world/IsoPrimitive';
 export { IsoBox } from './world/IsoBox';
