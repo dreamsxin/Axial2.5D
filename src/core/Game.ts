@@ -13,6 +13,7 @@ import { DebugSystem } from '../debug/DebugSystem';
 import { SceneManager } from '../scene/SceneManager';
 import { ResourceManager } from '../resource/ResourceManager';
 import { EventBus } from '../utils/EventBus';
+import { ModuleManager, ModuleConfig } from './ModuleManager';
 import { MapData, DebugConfig, ProjectionConfig, MapConfig, TileData, SceneConfig } from './types';
 
 export interface GameConfig {
@@ -21,8 +22,27 @@ export interface GameConfig {
   projection?: ProjectionConfig;
   debug?: Partial<DebugConfig>;
   canvas?: HTMLCanvasElement | OffscreenCanvas;
+  
+  // Module system (Phase 5)
+  modules?: ModuleConfig;
+  
+  // Legacy render callbacks (use renderHooks for more control)
   onBeforeRender?: (ctx: CanvasRenderingContext2D) => void;
   onAfterRender?: (ctx: CanvasRenderingContext2D) => void;
+  
+  // Render hook callbacks
+  renderHooks?: {
+    /** Called before clearing the canvas */
+    onBeforeClear?: (ctx: CanvasRenderingContext2D) => void;
+    /** Called after clearing, before rendering layers */
+    onAfterClear?: (ctx: CanvasRenderingContext2D) => void;
+    /** Called after rendering all layers, before effects */
+    onAfterLayers?: (ctx: CanvasRenderingContext2D) => void;
+    /** Called after rendering effects, before debug */
+    onAfterEffects?: (ctx: CanvasRenderingContext2D) => void;
+    /** Called after everything, before presenting */
+    onBeforePresent?: (ctx: CanvasRenderingContext2D) => void;
+  };
 }
 
 export class Game {
@@ -37,16 +57,56 @@ export class Game {
   public debugSystem: DebugSystem;
   public sceneManager: SceneManager;
   public resourceManager: ResourceManager;
+  public occlusionSystem: any = null; // OcclusionSystem (Phase 2)
+  public moduleManager: ModuleManager | null = null; // ModuleManager (Phase 5)
+  public modules: any = {}; // Shortcut to moduleManager.modules
+
+  // Stats for monitoring (Phase 5)
+  public stats = {
+    fps: 0,
+    frameTime: 0,
+    drawCalls: 0,
+    entityCount: 0
+  };
+
+  // Logger (Phase 5)
+  public log: any = null;
 
   private running: boolean = false;
   private lastTime: number = 0;
   private canvas: HTMLCanvasElement | OffscreenCanvas;
+  private moduleConfig?: ModuleConfig;
+  private renderOptions: {
+    layerCount?: number;
+    showGrid?: boolean;
+    foregroundAlpha?: number;
+    zIndexStep?: number;
+    parallaxRange?: number;
+    maxDepth?: number;
+  } = {
+    showGrid: true,
+    layerCount: 5,
+    foregroundAlpha: 0.6,
+    zIndexStep: 30,
+    parallaxRange: 0.7,
+    maxDepth: 2000
+  };
   public onBeforeRender?: (ctx: CanvasRenderingContext2D) => void;
   public onAfterRender?: (ctx: CanvasRenderingContext2D) => void;
+  public renderHooks?: {
+    onBeforeClear?: (ctx: CanvasRenderingContext2D) => void;
+    onAfterClear?: (ctx: CanvasRenderingContext2D) => void;
+    onAfterLayers?: (ctx: CanvasRenderingContext2D) => void;
+    onAfterEffects?: (ctx: CanvasRenderingContext2D) => void;
+    onBeforePresent?: (ctx: CanvasRenderingContext2D) => void;
+  };
 
   constructor(config: GameConfig) {
     // Initialize event bus first
     this.eventBus = new EventBus();
+
+    // Store module config for later initialization
+    this.moduleConfig = config.modules;
 
     // Create projection
     // Default viewAngle: 30° for true isometric projection (matches standalone.html)
@@ -86,6 +146,7 @@ export class Game {
     // Set render callbacks
     this.onBeforeRender = config.onBeforeRender;
     this.onAfterRender = config.onAfterRender;
+    this.renderHooks = config.renderHooks;
   }
 
   /**
@@ -128,6 +189,20 @@ export class Game {
 
     // Setup default input handlers
     this.setupDefaultInputHandlers();
+
+    // Initialize modules (Phase 5)
+    if (this.moduleConfig) {
+      this.moduleManager = new ModuleManager(this, this.moduleConfig);
+      this.moduleManager.init();
+      this.modules = this.moduleManager.modules;
+      
+      // Setup logger if UIManager module is enabled
+      if (this.modules.uiManager?.log) {
+        this.log = this.modules.uiManager.log;
+      }
+    }
+
+    this.log?.info('Game initialized', { mapSize: `${mapData.width}x${mapData.height}` });
   }
 
   /**
@@ -210,22 +285,57 @@ export class Game {
       this.entityManager.updateAll(delta);
     }
 
-    // Update debug stats
+    // Update modules (Phase 5)
+    if (this.modules.cameraController) {
+      this.modules.cameraController.update();
+    }
+    if (this.modules.occlusionSystem) {
+      this.modules.occlusionSystem.update();
+    }
+    if (this.modules.effectSystem) {
+      this.modules.effectSystem.update(delta);
+    }
+
+    // Update debug stats and store in stats object
     this.debugSystem.updateFrameStats(delta);
+    this.stats.fps = (this.debugSystem as any).stats?.fps ?? 0;
+    this.stats.frameTime = (this.debugSystem as any).stats?.frameTime ?? 0;
+    this.stats.drawCalls = (this.debugSystem as any).stats?.drawCalls ?? 0;
+    this.stats.entityCount = (this.debugSystem as any).stats?.entityCount ?? 0;
   }
 
   /**
-   * Render the game
+   * Render the game with extensible pipeline hooks
+   * 
+   * Render order:
+   * 1. onBeforeClear - Before clearing canvas
+   * 2. Clear canvas
+   * 3. onAfterClear - After clearing, before layers
+   * 4. Render layers (scene or default)
+   * 5. onAfterLayers - After layers, before effects
+   * 6. Render effects (if any registered)
+   * 7. onAfterEffects - After effects, before debug
+   * 8. Draw debug
+   * 9. onBeforePresent - Before presenting frame
+   * 10. Present frame
    */
   public render(): void {
     const ctx = this.renderer.ctx as CanvasRenderingContext2D;
     
+    // Hook: Before clear
+    if (this.renderHooks?.onBeforeClear) {
+      this.renderHooks.onBeforeClear(ctx);
+    }
+    if (this.onBeforeRender) {
+      this.onBeforeRender(ctx);
+    }
+    
     // Clear
     this.renderer.clear('#1a1a2e');
     
-    // Before render callback
-    if (this.onBeforeRender) {
-      this.onBeforeRender(ctx);
+    // Hook: After clear
+    if (this.renderHooks?.onAfterClear) {
+      this.renderHooks.onAfterClear(ctx);
     }
 
     // Render current scene or default
@@ -235,11 +345,46 @@ export class Game {
       // Default render with layer support
       this.renderDefault();
     }
-
-    // Draw debug info
-    this.debugSystem.draw(ctx);
     
-    // After render callback
+    // Hook: After layers / Render effects (Phase 5 - auto-render from modules)
+    if (this.renderHooks?.onAfterLayers) {
+      this.renderHooks.onAfterLayers(ctx);
+    }
+    
+    // Auto-render effect system if module is enabled
+    if (this.modules.effectSystem && this.modules.layerManager) {
+      const layerCount = this.modules.layerManager.getLayerCount?.() ?? 5;
+      for (let i = 0; i < layerCount; i++) {
+        const layerInfo = this.modules.layerManager.getLayerStats?.(i) ?? { parallax: 1, alpha: 1 };
+        this.modules.effectSystem.render(ctx, i, {
+          parallaxFactor: layerInfo.parallax,
+          alpha: layerInfo.alpha
+        });
+      }
+    }
+
+    // Auto-render debug panel if module is enabled
+    if (this.modules.debugPanel?.isEnabled()) {
+      this.modules.debugPanel.render(ctx);
+    } else {
+      // Fallback to legacy debug system
+      this.debugSystem.draw(ctx);
+    }
+    
+    // Hook: After effects / before present
+    if (this.renderHooks?.onAfterEffects) {
+      this.renderHooks.onAfterEffects(ctx);
+    }
+    if (this.renderHooks?.onBeforePresent) {
+      this.renderHooks.onBeforePresent(ctx);
+    }
+    
+    // Auto-update UI manager if module is enabled
+    if (this.modules.uiManager) {
+      this.modules.uiManager.updateAll?.();
+    }
+    
+    // After render callback (legacy)
     if (this.onAfterRender) {
       this.onAfterRender(ctx);
     }
@@ -295,6 +440,27 @@ export class Game {
   }
 
   /**
+   * Set render options
+   */
+  public setRenderOptions(options: {
+    layerCount?: number;
+    showGrid?: boolean;
+    foregroundAlpha?: number;
+    zIndexStep?: number;
+    parallaxRange?: number;
+    maxDepth?: number;
+  }): void {
+    this.renderOptions = { ...this.renderOptions, ...options };
+  }
+
+  /**
+   * Get current render options
+   */
+  public getRenderOptions(): typeof this.renderOptions {
+    return { ...this.renderOptions };
+  }
+
+  /**
    * Create offscreen canvas for Node.js
    */
   private createOffscreenCanvas(width: number, height: number): OffscreenCanvas {
@@ -325,12 +491,13 @@ export class Game {
   }): void {
     if (!this.gridSystem || !this.entityManager) return;
 
-    const layerCount = options?.layerCount ?? 5;
-    const showGrid = options?.showGrid ?? true;
-    const foregroundAlpha = options?.foregroundAlpha ?? 0.6;
-    const zIndexStep = options?.zIndexStep ?? 30;
-    const parallaxRange = options?.parallaxRange ?? 0.7;
-    const maxDepth = options?.maxDepth ?? 2000;
+    // Merge options: passed options > stored renderOptions > defaults
+    const layerCount = options?.layerCount ?? this.renderOptions.layerCount ?? 5;
+    const showGrid = options?.showGrid ?? this.renderOptions.showGrid ?? true;
+    const foregroundAlpha = options?.foregroundAlpha ?? this.renderOptions.foregroundAlpha ?? 0.6;
+    const zIndexStep = options?.zIndexStep ?? this.renderOptions.zIndexStep ?? 30;
+    const parallaxRange = options?.parallaxRange ?? this.renderOptions.parallaxRange ?? 0.7;
+    const maxDepth = options?.maxDepth ?? this.renderOptions.maxDepth ?? 2000;
 
     const ctx = this.renderer.ctx as CanvasRenderingContext2D;
     const camera = this.renderer.camera;
@@ -359,12 +526,13 @@ export class Game {
         maxDepth
       });
 
-      // Render entities for this layer
+      // Render entities for this layer (with occlusion support)
       this.entityManager.render(ctx, {
         layerIndex: layerIdx,
         layerCount,
         maxDepth,
-        parallaxFactor
+        parallaxFactor,
+        occlusionSystem: this.occlusionSystem
       });
 
       ctx.restore();

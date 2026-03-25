@@ -41,8 +41,7 @@ export { UIManager } from './ui/UIManager';
 
 // Debug
 export { DebugSystem } from './debug/DebugSystem';
-export { DebugRenderer } from './debug/DebugRenderer';
-export type { DebugTextConfig, DebugShapeConfig, DebugTileHighlight } from './debug/DebugRenderer';
+// DebugRenderer exported in Debug (Phase 3) section below
 
 // Scene
 export { SceneManager } from './scene/SceneManager';
@@ -53,12 +52,35 @@ export { ResourceManager } from './resource/ResourceManager';
 // Utils
 export { EventBus } from './utils/EventBus';
 export * from './utils/IsoUtils';
-export { Logger, logger } from './utils/Logger';
-export type { LogLevel, LoggerConfig } from './utils/Logger';
+// Logger moved to ui/Logger (Phase 5)
 
 // Controllers
 export { PlayerController } from './controllers/PlayerController';
 export type { PlayerControllerConfig } from './controllers/PlayerController';
+export { CameraController } from './controllers/CameraController';
+export type { CameraFollowConfig, CameraControllerConfig } from './controllers/CameraController';
+
+// Systems (Phase 2)
+export { OcclusionSystem } from './systems/OcclusionSystem';
+export type { OcclusionData, OcclusionCallback, OcclusionSystemConfig } from './systems/OcclusionSystem';
+export { EffectSystemWrapper } from './systems/EffectSystemWrapper';
+export type { EffectSystemWrapperConfig } from './systems/EffectSystemWrapper';
+
+// UI (Phase 3)
+export { UIDataBinder } from './ui/UIDataBinder';
+export type { BindingConfig, BindingUpdater, ValueProvider, ValueFormatter } from './ui/UIDataBinder';
+export { Logger } from './ui/Logger';
+export type { LogLevel, LoggerConfig } from './ui/Logger';
+
+// Debug (Phase 3)
+export { DebugRenderer } from './debug/DebugRenderer';
+export type { DebugTextConfig, DebugTileHighlightConfig, DebugLineConfig, DebugShapeConfig, DebugEntityBoundsConfig } from './debug/DebugRenderer';
+export { DebugPanel } from './debug/DebugPanel';
+export type { DebugPanelConfig } from './debug/DebugPanel';
+
+// Module System (Phase 5)
+export { ModuleManager } from './core/ModuleManager';
+export type { ModuleConfig, GameModules } from './core/ModuleManager';
 
 // Camera types
 export type { ScreenPoint3D, WorldPoint3D } from './core/IsoCamera';

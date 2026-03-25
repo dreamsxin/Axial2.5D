@@ -1,94 +1,185 @@
 /**
- * PlayerController - Handles player movement and camera follow
- * Automatically processes keyboard input and click-to-move
+ * PlayerController - Encapsulates player input and movement logic
+ * 
+ * Features:
+ * - Keyboard movement (WASD/Arrow keys)
+ * - Click-to-move
+ * - Path validation (walkable tiles only)
+ * - Boundary checking
+ * - Movement events
+ * - Optional auto-camera follow
+ * 
+ * Usage:
+ * ```typescript
+ * const playerController = new PlayerController('player', {
+ *   inputManager: game.inputManager,
+ *   gridSystem: game.gridSystem,
+ *   entityManager: game.entityManager,
+ *   allowClickToMove: true,
+ *   allowKeyboardMove: true,
+ *   boundary: { minCol: 0, maxCol: 11, minRow: 0, maxRow: 11 }
+ * });
+ * 
+ * playerController.enable();
+ * playerController.onMove((col, row) => console.log(`Moved to ${col},${row}`));
+ * 
+ * // Programmatic movement
+ * await playerController.moveTo(5, 5);
+ * ```
  */
 
-import { EntityManager } from '../world/EntityManager';
+import { InputManager } from '../input/InputManager';
 import { GridSystem } from '../world/GridSystem';
-import { IsoCamera } from '../core/IsoCamera';
+import { EntityManager } from '../world/EntityManager';
+import { Entity } from '../core/types';
 import { EventBus } from '../utils/EventBus';
-import { LayerManager } from '../core/LayerManager';
-
-import { Projection } from '../core/Projection';
 
 export interface PlayerControllerConfig {
-  playerId?: string;
-  camera?: IsoCamera;
-  projection: Projection;
+  inputManager: InputManager;
   gridSystem: GridSystem;
   entityManager: EntityManager;
   eventBus: EventBus;
-  layerManager?: LayerManager;
-  maxDepth?: number;
-  smoothCamera?: boolean;
-  cameraSmoothness?: number;
+  
+  // Movement options
+  allowClickToMove?: boolean;
+  allowKeyboardMove?: boolean;
+  
+  // Boundary (optional)
+  boundary?: {
+    minCol: number;
+    maxCol: number;
+    minRow: number;
+    maxRow: number;
+  };
+  
+  // Camera follow (optional)
+  cameraController?: any; // CameraController type (circular dep)
 }
 
+export type MoveCallback = (col: number, row: number) => void;
+
 export class PlayerController {
-  private playerId: string;
-  private camera: IsoCamera | null;
-  private projection: Projection;
+  private entityId: string;
+  private inputManager: InputManager;
   private gridSystem: GridSystem;
   private entityManager: EntityManager;
   private eventBus: EventBus;
-  private layerManager: LayerManager | null;
-  private maxDepth: number;
-  private smoothCamera: boolean;
-  private cameraSmoothness: number;
   
-  private playerCol: number = 0;
-  private playerRow: number = 0;
-  private isMoving: boolean = false;
+  private config: Required<PlayerControllerConfig>;
+  private enabled: boolean = false;
+  private moveCallbacks: MoveCallback[] = [];
+  
+  private keyRepeatTimer: number = 0;
+  private keyRepeatInterval: number = 150; // ms between repeated moves
+  private lastMoveTime: number = 0;
 
-  constructor(config: PlayerControllerConfig) {
-    this.playerId = config.playerId ?? 'player';
-    this.camera = config.camera ?? null;
-    this.projection = config.projection;
+  constructor(entityId: string, config: PlayerControllerConfig) {
+    this.entityId = entityId;
+    this.inputManager = config.inputManager;
     this.gridSystem = config.gridSystem;
     this.entityManager = config.entityManager;
     this.eventBus = config.eventBus;
-    this.layerManager = config.layerManager ?? null;
-    this.maxDepth = config.maxDepth ?? 2000;
-    this.smoothCamera = config.smoothCamera ?? true;
-    this.cameraSmoothness = config.cameraSmoothness ?? 0.1;
     
-    // Initialize player position
-    this.updatePlayerPosition();
+    this.config = {
+      allowClickToMove: config.allowClickToMove ?? true,
+      allowKeyboardMove: config.allowKeyboardMove ?? true,
+      boundary: config.boundary ?? {
+        minCol: 0,
+        maxCol: config.gridSystem.getDimensions().width - 1,
+        minRow: 0,
+        maxRow: config.gridSystem.getDimensions().height - 1
+      },
+      cameraController: config.cameraController ?? null,
+      eventBus: config.eventBus,
+      inputManager: config.inputManager,
+      gridSystem: config.gridSystem,
+      entityManager: config.entityManager
+    };
+  }
+
+  /**
+   * Enable the controller (start listening to input)
+   */
+  public enable(): void {
+    if (this.enabled) {
+      console.warn('PlayerController already enabled');
+      return;
+    }
+
+    this.enabled = true;
+    this.setupEventListeners();
+    this.getEntity(); // Cache entity
     
-    // Setup input handlers
-    this.setupInputHandlers();
+    console.log(`PlayerController enabled for entity "${this.entityId}"`);
+  }
+
+  /**
+   * Disable the controller (stop listening to input)
+   */
+  public disable(): void {
+    if (!this.enabled) return;
+
+    this.enabled = false;
+    this.removeEventListeners();
+    
+    console.log(`PlayerController disabled for entity "${this.entityId}"`);
+  }
+
+  /**
+   * Check if controller is enabled
+   */
+  public isEnabled(): boolean {
+    return this.enabled;
+  }
+
+  /**
+   * Get the controlled entity
+   */
+  public getEntity(): Entity | undefined {
+    return this.entityManager.getEntity(this.entityId);
   }
 
   /**
    * Get current player position
    */
-  public getPosition(): { col: number; row: number } {
-    return { col: this.playerCol, row: this.playerRow };
+  public getPosition(): { col: number; row: number } | null {
+    const entity = this.getEntity();
+    if (!entity) return null;
+    return { col: entity.col, row: entity.row };
   }
 
   /**
-   * Move player to new position
+   * Move player to a specific grid position
+   * @returns Promise that resolves to true if move succeeded
    */
-  public moveTo(col: number, row: number): boolean {
-    const tile = this.gridSystem.getTile(col, row);
-    if (!tile || !tile.walkable) {
+  public async moveTo(col: number, row: number): Promise<boolean> {
+    // Validate bounds
+    if (!this.isWithinBounds(col, row)) {
+      console.warn(`PlayerController: Target (${col},${row}) out of bounds`);
       return false;
     }
 
-    const player = this.entityManager.getEntity(this.playerId);
-    if (!player) {
+    // Validate walkable
+    if (!this.gridSystem.isWalkable(col, row, this.getEntity())) {
+      console.warn(`PlayerController: Target (${col},${row}) not walkable`);
       return false;
     }
 
-    const success = this.entityManager.moveEntity(player, col, row);
+    // Move entity
+    const entity = this.getEntity();
+    if (!entity) {
+      console.warn(`PlayerController: Entity "${this.entityId}" not found`);
+      return false;
+    }
+
+    const success = this.entityManager.moveEntity(entity, col, row);
+    
     if (success) {
-      this.playerCol = col;
-      this.playerRow = row;
-      this.isMoving = true;
+      this.emitMove(col, row);
       
-      // Update camera if enabled
-      if (this.camera && this.smoothCamera) {
-        this.updateCamera();
+      // Update camera if configured
+      if (this.config.cameraController) {
+        this.config.cameraController.update();
       }
     }
 
@@ -96,104 +187,131 @@ export class PlayerController {
   }
 
   /**
-   * Move player by delta
+   * Move player by delta (relative movement)
    */
-  public moveBy(dCol: number, dRow: number): boolean {
-    return this.moveTo(this.playerCol + dCol, this.playerRow + dRow);
+  public async moveBy(dCol: number, dRow: number): Promise<boolean> {
+    const pos = this.getPosition();
+    if (!pos) return false;
+
+    return this.moveTo(pos.col + dCol, pos.row + dRow);
   }
 
   /**
-   * Update player position from entity
+   * Register callback for move events
    */
-  public updatePlayerPosition(): void {
-    const player = this.entityManager.getEntity(this.playerId);
-    if (player) {
-      this.playerCol = player.col;
-      this.playerRow = player.row;
+  public onMove(callback: MoveCallback): void {
+    this.moveCallbacks.push(callback);
+  }
+
+  /**
+   * Unregister callback for move events
+   */
+  public offMove(callback: MoveCallback): void {
+    const index = this.moveCallbacks.indexOf(callback);
+    if (index > -1) {
+      this.moveCallbacks.splice(index, 1);
     }
   }
 
   /**
-   * Update camera to follow player
+   * Setup input event listeners
    */
-  public updateCamera(): void {
-    if (!this.camera || !this.layerManager) return;
+  private setupEventListeners(): void {
+    if (this.config.allowClickToMove) {
+      this.eventBus.on('click', (data) => this.handleClick(data));
+    }
 
-    const playerDepth = this.playerCol + this.playerRow;
-    const playerLayer = this.layerManager.getLayerForDepth(playerDepth);
-    const playerParallax = this.layerManager.calculateParallaxFactor(playerLayer);
-    
-    const worldPos = this.gridSystem.gridToWorld(this.playerCol, this.playerRow);
-    
-    this.camera.follow(worldPos.x, worldPos.z, 0, this.projection, {
-      smoothness: this.cameraSmoothness,
-      parallaxFactor: playerParallax
-    });
+    if (this.config.allowKeyboardMove) {
+      this.eventBus.on('keyDown', (data) => this.handleKeyDown(data));
+    }
   }
 
   /**
-   * Set camera follow smoothness
+   * Remove input event listeners
    */
-  public setCameraSmoothness(smoothness: number): void {
-    this.cameraSmoothness = Math.max(0, Math.min(1, smoothness));
+  private removeEventListeners(): void {
+    // Note: EventBus doesn't have off() in current impl
+    // In production, should add proper cleanup
   }
 
   /**
-   * Enable/disable smooth camera
+   * Handle click-to-move
    */
-  public setSmoothCamera(enabled: boolean): void {
-    this.smoothCamera = enabled;
+  private handleClick(data: any): void {
+    if (!this.enabled || !this.config.allowClickToMove) return;
+
+    const { gridCol, gridRow } = data;
+    if (gridCol === undefined || gridRow === undefined) return;
+
+    this.moveTo(gridCol, gridRow);
   }
 
   /**
-   * Setup input event handlers
+   * Handle keyboard movement with repeat
    */
-  private setupInputHandlers(): void {
-    // Keyboard movement
-    this.eventBus.on('keyDown', (data) => {
-      const key = (data as any).key as string;
-      let dCol = 0, dRow = 0;
-      
-      if (key === 'w' || key === 'ArrowUp') dRow = -1;
-      if (key === 's' || key === 'ArrowDown') dRow = 1;
-      if (key === 'a' || key === 'ArrowLeft') dCol = -1;
-      if (key === 'd' || key === 'ArrowRight') dCol = 1;
-      
-      if (dCol !== 0 || dRow !== 0) {
-        this.moveBy(dCol, dRow);
+  private handleKeyDown(data: any): void {
+    if (!this.enabled || !this.config.allowKeyboardMove) return;
+
+    const now = Date.now();
+    if (now - this.lastMoveTime < this.keyRepeatInterval) {
+      return; // Rate limit
+    }
+
+    const { dCol, dRow } = this.inputManager.getMovementDirection();
+    if (dCol !== 0 || dRow !== 0) {
+      this.moveBy(dCol, dRow);
+      this.lastMoveTime = now;
+    }
+  }
+
+  /**
+   * Check if position is within bounds
+   */
+  private isWithinBounds(col: number, row: number): boolean {
+    const { minCol, maxCol, minRow, maxRow } = this.config.boundary;
+    return col >= minCol && col <= maxCol && row >= minRow && row <= maxRow;
+  }
+
+  /**
+   * Emit move event to callbacks
+   */
+  private emitMove(col: number, row: number): void {
+    for (const callback of this.moveCallbacks) {
+      try {
+        callback(col, row);
+      } catch (error) {
+        console.error('PlayerController: Move callback error', error);
       }
-    });
-
-    // Click to move
-    this.eventBus.on('click', (data) => {
-      const gridCol = (data as any).gridCol as number;
-      const gridRow = (data as any).gridRow as number;
-      
-      if (gridCol !== undefined && gridRow !== undefined) {
-        this.moveTo(gridCol, gridRow);
-      }
-    });
+    }
   }
 
   /**
-   * Update controller (call every frame)
+   * Update controller (called every frame)
+   * Currently used for continuous movement if needed
    */
   public update(delta: number): void {
-    // Update player position in case it changed externally
-    this.updatePlayerPosition();
-    
-    // Update camera
-    if (this.camera && this.smoothCamera) {
-      this.updateCamera();
-    }
-    
-    this.isMoving = false;
+    // Could be extended for smooth movement interpolation
+    // Currently handled by discrete grid movement
   }
 
   /**
-   * Destroy controller and cleanup
+   * Set camera controller for auto-follow
    */
-  public destroy(): void {
-    // Cleanup would go here
+  public setCameraController(cameraController: any): void {
+    this.config.cameraController = cameraController;
+  }
+
+  /**
+   * Set movement boundary
+   */
+  public setBoundary(boundary: { minCol: number; maxCol: number; minRow: number; maxRow: number }): void {
+    this.config.boundary = boundary;
+  }
+
+  /**
+   * Get current boundary
+   */
+  public getBoundary(): { minCol: number; maxCol: number; minRow: number; maxRow: number } {
+    return { ...this.config.boundary };
   }
 }

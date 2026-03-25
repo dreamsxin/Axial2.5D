@@ -229,13 +229,34 @@ export class DebugSystem {
   }
 
   private drawMouseInfo(ctx: CanvasRenderingContext2D): void {
-    if (!this.inputManager || !this.gridSystem) return;
+    if (!this.inputManager || !this.gridSystem || !this.renderer) return;
 
     const mouseState = this.inputManager.mouseState;
-    const worldPos = this.inputManager.screenToWorld(mouseState.screenX, mouseState.screenY);
+    const camera = this.renderer.camera;
+    
+    // Use player layer parallax for mouse coordinate calculation (matches standalone.html behavior)
+    // Default to 1.0 if entityManager is not available to get player position
+    let parallaxFactor = 1.0;
+    if (this.entityManager) {
+      const player = this.entityManager.getEntity('player');
+      if (player) {
+        const playerDepth = player.col + player.row;
+        const maxDepth = 2000;
+        const layerCount = 5;
+        const parallaxRange = 0.7;
+        const playerLayer = Math.floor((playerDepth / maxDepth) * layerCount);
+        parallaxFactor = 0.3 + (playerLayer / (layerCount - 1)) * parallaxRange;
+      }
+    }
+    
+    // Calculate world position with correct parallax
+    const worldPos = this.inputManager.screenToWorld(mouseState.screenX, mouseState.screenY, parallaxFactor);
     const gridPos = this.gridSystem.worldToGrid(worldPos.x, worldPos.y);
     
     const tile = this.gridSystem.getTile(gridPos.col, gridPos.row);
+
+    // Draw mouse tile highlight
+    this.drawMouseHighlight(ctx, gridPos.col, gridPos.row, parallaxFactor);
 
     ctx.fillStyle = '#ff0';
     ctx.font = '12px monospace';
@@ -255,5 +276,42 @@ export class DebugSystem {
       ctx.fillText(line, x, y);
       y += 16;
     }
+  }
+
+  private drawMouseHighlight(
+    ctx: CanvasRenderingContext2D,
+    col: number,
+    row: number,
+    parallaxFactor: number
+  ): void {
+    if (!this.gridSystem || !this.renderer) return;
+
+    const worldPos = this.gridSystem.gridToWorld(col, row);
+    const tileSize = this.gridSystem.getTileSize();
+
+    // Get the four corners of the tile
+    const corners = [
+      this.renderer.camera.worldToScreen(worldPos.x, worldPos.z, 0, this.renderer.projection, parallaxFactor),
+      this.renderer.camera.worldToScreen(worldPos.x + tileSize.width, worldPos.z, 0, this.renderer.projection, parallaxFactor),
+      this.renderer.camera.worldToScreen(worldPos.x + tileSize.width, worldPos.z + tileSize.height, 0, this.renderer.projection, parallaxFactor),
+      this.renderer.camera.worldToScreen(worldPos.x, worldPos.z + tileSize.height, 0, this.renderer.projection, parallaxFactor)
+    ];
+
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(corners[0].sx, corners[0].sy);
+    for (let i = 1; i < 4; i++) {
+      ctx.lineTo(corners[i].sx, corners[i].sy);
+    }
+    ctx.closePath();
+    ctx.fillStyle = '#ffff00';
+    ctx.fill();
+    
+    ctx.globalAlpha = 1.0;
+    ctx.strokeStyle = '#ffff00';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
   }
 }

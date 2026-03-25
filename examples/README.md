@@ -10,9 +10,7 @@ examples/
 │   ├── standalone.html      # 独立演示 - 完整功能，无需编译
 │   └── framework.html       # 框架示例 - 使用框架 API
 ├── ts/                      # TypeScript 示例（需要编译）
-│   ├── demo.ts              # 基础演示
-│   ├── game-demo.ts         # 完整游戏演示
-│   └── advanced-demo.ts     # 高级功能演示
+│   └── demo.ts              # 基础演示
 └── README.md                # 本文件
 ```
 
@@ -36,6 +34,7 @@ npm run server
 - 导入框架模块
 - 使用 LayerManager
 - 适合学习框架用法
+- Vite 热重载，开发体验好
 
 **运行方式：**
 ```bash
@@ -46,36 +45,25 @@ npm run dev
 ## 💻 TypeScript 示例
 
 ### demo.ts
-基础演示，展示框架核心功能。
+基础演示，展示框架核心功能（Node.js 环境运行）。
 
 **运行方式：**
 ```bash
 npm run demo
 ```
 
-### game-demo.ts
-完整游戏演示，包含实体、输入、UI 等系统。
-
-**运行方式：**
-```bash
-# 编译后运行
-npm run build
-node dist/examples/game-demo.js
-```
-
-### advanced-demo.ts
-高级功能演示，展示图层、相机、渲染等高级特性。
-
-**运行方式：**
-```bash
-npm run build
-node dist/examples/advanced-demo.js
-```
-
 ## 🚀 快速开始
 
-**推荐新手：** 从 `html/framework.html` 开始，了解框架 API 用法。
+| 目的 | 推荐示例 | 命令 |
+|------|----------|------|
+| **快速体验** | `standalone.html` | `npm run server` |
+| **学习框架** | `framework.html` | `npm run dev` |
+| **Node.js 集成** | `demo.ts` | `npm run demo` |
 
-**快速体验：** 运行 `npm run server` 访问 `standalone.html` 体验完整功能。
+## 🎯 示例对比
 
-**开发者：** 查看 `ts/` 目录中的 TypeScript 示例，学习如何在项目中使用框架。
+| 示例 | 编译 | 环境 | 用途 |
+|------|------|------|------|
+| standalone.html | ❌ | 浏览器 | 完整功能演示 |
+| framework.html | ✅ (Vite) | 浏览器 | 学习框架 API |
+| demo.ts | ✅ (tsc) | Node.js | 服务端/CLI 集成 |

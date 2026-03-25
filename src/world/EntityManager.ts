@@ -194,9 +194,14 @@ export class EntityManager {
   }
 
   /**
-   * Render entities for a specific layer
-   * @param ctx - Canvas rendering context
-   * @param options - Render options
+   * Render entities with optional occlusion handling
+   * 
+   * Occlusion logic (when occlusionSystem is provided):
+   * - Characters in occluded tiles are drawn FIRST (opaque)
+   * - Buildings that occlude characters are drawn SEMI-TRANSPARENT on top
+   * - This ensures characters are visible through buildings
+   * 
+   * If occlusionSystem is NOT provided, uses legacy internal occlusion map
    */
   public render(
     ctx: CanvasRenderingContext2D,
@@ -206,6 +211,7 @@ export class EntityManager {
       maxDepth?: number;
       parallaxFactor?: number;
       wireframe?: boolean;
+      occlusionSystem?: any; // OcclusionSystem from systems/OcclusionSystem
     }
   ): void {
     const layerIndex = options?.layerIndex;
@@ -213,41 +219,310 @@ export class EntityManager {
     const maxDepth = options?.maxDepth ?? 2000;
     const parallaxFactor = options?.parallaxFactor ?? 1.0;
     const wireframe = options?.wireframe ?? false;
+    const occlusionSystem = options?.occlusionSystem;
 
     ctx.save();
-    
-    // Note: Z-axis offset is applied by the caller (Game.renderDefault)
-    // Don't apply it here to avoid double-application
 
-    // Get all entities and sort by depth
+    // Get all entities
     const allEntities = this.getAllEntities().filter(e => e.visible !== false);
     
-    const sortedEntities = allEntities
-      .filter(e => {
-        // If layerIndex specified, only render entities for this layer
-        if (layerIndex !== undefined) {
-          const depth = e.col + e.row;
-          const entityLayer = Math.floor((depth / maxDepth) * layerCount);
-          return entityLayer === layerIndex;
-        }
-        return true;
-      })
-      .sort((a, b) => a.depth - b.depth);
-
-    for (const entity of sortedEntities) {
-      const worldPos = this.gridSystem.gridToWorld(entity.col, entity.row);
-      
-      if (entity.draw) {
-        // Entity has custom draw logic
-        entity.draw(ctx);
-      } else {
-        // Default: draw as a box
-        this.drawDefaultEntity(ctx, entity, worldPos, parallaxFactor, wireframe);
+    // Filter by layer if specified
+    const layerEntities = allEntities.filter(e => {
+      if (layerIndex !== undefined) {
+        const depth = e.col + e.row;
+        const entityLayer = Math.floor((depth / maxDepth) * layerCount);
+        return entityLayer === layerIndex;
       }
+      return true;
+    });
+
+    // Use provided OcclusionSystem or calculate internal occlusion map
+    if (occlusionSystem) {
+      // Use OcclusionSystem for occlusion queries
+      this.renderWithOcclusionSystem(ctx, layerEntities, parallaxFactor, wireframe, occlusionSystem);
+    } else {
+      // Legacy: calculate internal occlusion map
+      const tileSize = this.gridSystem.getTileSize().width;
+      const mapSize = this.gridSystem.getDimensions();
+      this.calculateOcclusionMap(layerEntities, tileSize, mapSize.width, mapSize.height);
+      this.renderWithInternalOcclusion(ctx, layerEntities, parallaxFactor, wireframe);
     }
 
     ctx.restore();
   }
+
+  /**
+   * Render using OcclusionSystem (Phase 2)
+   * Uses southeast corner depth for fine-grained sorting
+   */
+  private renderWithOcclusionSystem(
+    ctx: CanvasRenderingContext2D,
+    entities: Entity[],
+    parallaxFactor: number,
+    wireframe: boolean,
+    occlusionSystem: any
+  ): void {
+    // Determine which buildings should be semi-transparent
+    const semiTransparentBuildings = new Set<string>();
+    
+    for (const char of entities) {
+      if (char.height >= 50) continue; // Skip buildings
+      
+      if (occlusionSystem.isOccluded(char)) {
+        const occlusions = occlusionSystem.getOccludingBuildings(char);
+        for (const occ of occlusions) {
+          if (occ.height > char.height) {
+            semiTransparentBuildings.add(occ.buildingId);
+          }
+        }
+      }
+    }
+
+    // Sort ALL entities by southeast corner depth (single unified sort)
+    const sortedEntities = entities.sort((a, b) => {
+      const aIsBuilding = a.height >= 50;
+      const bIsBuilding = b.height >= 50;
+      
+      // Calculate southeast corner depth for both entities
+      const aSED = aIsBuilding 
+        ? (a.col + Math.ceil(((a as any).width || 50) / 50) - 1) + (a.row + Math.ceil(((a as any).length || 50) / 50) - 1)
+        : a.col + a.row;
+      
+      const bSED = bIsBuilding 
+        ? (b.col + Math.ceil(((b as any).width || 50) / 50) - 1) + (b.row + Math.ceil(((b as any).length || 50) / 50) - 1)
+        : b.col + b.row;
+      
+      // Primary sort: by southeast depth
+      if (aSED !== bSED) {
+        return aSED - bSED;
+      }
+      
+      // Secondary sort: when depth is equal, characters render after buildings
+      // (characters should appear in front of buildings at same depth)
+      if (aIsBuilding !== bIsBuilding) {
+        return aIsBuilding ? -1 : 1; // buildings first, characters last
+      }
+      
+      // Tertiary sort: by row (south first), then by col (east first)
+      if (a.row !== b.row) {
+        return b.row - a.row;
+      }
+      return b.col - a.col;
+    });
+
+    // Single pass: draw all entities in depth order
+    for (const entity of sortedEntities) {
+      const isBuilding = entity.height >= 50;
+      const isSemiTransparent = isBuilding && semiTransparentBuildings.has(entity.id);
+      const alpha = isSemiTransparent ? 0.5 : 1.0;
+      
+      this.drawEntity(ctx, entity, parallaxFactor, wireframe, alpha);
+    }
+  }
+
+  /**
+   * Render using internal occlusion map (legacy)
+   * Single-pass rendering with correct depth sorting by southeast corner
+   */
+  private renderWithInternalOcclusion(
+    ctx: CanvasRenderingContext2D,
+    entities: Entity[],
+    parallaxFactor: number,
+    wireframe: boolean
+  ): void {
+    // Determine which buildings should be semi-transparent
+    const semiTransparentBuildings = new Set<string>();
+    for (const char of entities) {
+      if (char.height >= 50) continue;
+      
+      const key = `${char.col},${char.row}`;
+      const occlusions = this.occlusionMap.get(key) || [];
+      
+      for (const occ of occlusions) {
+        if (occ.height > char.height) {
+          semiTransparentBuildings.add(occ.buildingId);
+        }
+      }
+    }
+
+    // Sort ALL entities by southeast corner depth (single unified sort)
+    const sortedEntities = entities.sort((a, b) => {
+      const aIsBuilding = a.height >= 50;
+      const bIsBuilding = b.height >= 50;
+      
+      // Calculate southeast corner depth for both entities
+      const aSED = aIsBuilding 
+        ? (a.col + Math.ceil(((a as any).width || 50) / 50) - 1) + (a.row + Math.ceil(((a as any).length || 50) / 50) - 1)
+        : a.col + a.row;
+      
+      const bSED = bIsBuilding 
+        ? (b.col + Math.ceil(((b as any).width || 50) / 50) - 1) + (b.row + Math.ceil(((b as any).length || 50) / 50) - 1)
+        : b.col + b.row;
+      
+      // Primary sort: by southeast depth
+      if (aSED !== bSED) {
+        return aSED - bSED;
+      }
+      
+      // Secondary sort: when depth is equal, characters render after buildings
+      // (characters should appear in front of buildings at same depth)
+      if (aIsBuilding !== bIsBuilding) {
+        return aIsBuilding ? -1 : 1; // buildings first, characters last
+      }
+      
+      // Tertiary sort: by row (south first), then by col (east first)
+      if (a.row !== b.row) {
+        return b.row - a.row;
+      }
+      return b.col - a.col;
+    });
+
+    // Single pass: draw all entities in depth order
+    for (const entity of sortedEntities) {
+      const isBuilding = entity.height >= 50;
+      const isSemiTransparent = isBuilding && semiTransparentBuildings.has(entity.id);
+      const alpha = isSemiTransparent ? 0.5 : 1.0;
+      
+      this.drawEntity(ctx, entity, parallaxFactor, wireframe, alpha);
+    }
+  }
+
+  /**
+   * Helper to draw a single entity
+   */
+  private drawEntity(
+    ctx: CanvasRenderingContext2D,
+    entity: Entity,
+    parallaxFactor: number,
+    wireframe: boolean,
+    alpha: number
+  ): void {
+    const worldPos = this.gridSystem.gridToWorld(entity.col, entity.row);
+    
+    ctx.save();
+    if (alpha < 1.0) {
+      ctx.globalAlpha = alpha;
+    }
+    
+    if (entity.draw) {
+      entity.draw(ctx);
+    } else {
+      this.drawDefaultEntity(ctx, entity, worldPos, parallaxFactor, wireframe);
+    }
+    
+    ctx.restore();
+  }
+
+  /**
+   * Occlusion map: stores which tiles are occluded and by what buildings
+   * Key: "col,row", Value: array of { buildingId, height } - all buildings that occlude this tile
+   */
+  private occlusionMap: Map<string, Array<{ buildingId: string; height: number }>> = new Map();
+
+  /**
+   * Calculate occlusion map for all tiles
+   * Algorithm:
+   * 1. For each building, calculate its footprint (cols x rows it occupies)
+   * 2. Cast occlusion shadow northwest from each occupied tile
+   * 3. Mark affected tiles with ALL occluding buildings (supports multiple buildings)
+   */
+  public calculateOcclusionMap(
+    entities: Entity[],
+    tileSize: number = 50,
+    mapWidth: number = 20,
+    mapHeight: number = 20
+  ): void {
+    this.occlusionMap.clear();
+
+    // Initialize all tiles with empty occlusion array
+    for (let c = 0; c < mapWidth; c++) {
+      for (let r = 0; r < mapHeight; r++) {
+        this.occlusionMap.set(`${c},${r}`, []);
+      }
+    }
+
+    // For each building, calculate occlusion
+    for (const entity of entities) {
+      if (entity.height >= 50) { // Only buildings cast shadows
+        const width = (entity as any).width || tileSize;
+        const length = (entity as any).length || tileSize;
+        this.calculateBuildingOcclusion(
+          entity.id,
+          entity.col,
+          entity.row,
+          entity.height,
+          width,
+          length,
+          tileSize,
+          mapWidth,
+          mapHeight
+        );
+      }
+    }
+  }
+
+  /**
+   * Calculate occlusion for a single building
+   * Coordinate system: origin at northwest, col increases east, row increases south
+   * Building at (col,row) extends southeast
+   * 
+   * Example: Building at (3,9) h=65, w=90, l=90, tileSize=50
+   * - Occupies: (3,9), (4,9), (3,10), (4,10) [2x2 grid cells]
+   * - Occlusion: casts shadow northwest from each occupied tile
+   * - Characters in occluded tiles are drawn FIRST, then building is drawn semi-transparent
+   */
+  private calculateBuildingOcclusion(
+    buildingId: string,
+    buildingCol: number,
+    buildingRow: number,
+    buildingHeight: number,
+    buildingWidth: number,
+    buildingLength: number,
+    tileSize: number,
+    mapWidth: number,
+    mapHeight: number
+  ): void {
+    const colsOccupied = Math.ceil(buildingWidth / tileSize);
+    const rowsOccupied = Math.ceil(buildingLength / tileSize);
+    const occlusionSteps = Math.floor(buildingHeight / tileSize);
+
+    // For each tile occupied by the building, cast occlusion shadow
+    for (let dc = 0; dc < colsOccupied; dc++) {
+      for (let dr = 0; dr < rowsOccupied; dr++) {
+        const col = buildingCol + dc;
+        const row = buildingRow + dr;
+        
+        if (col >= 0 && col < mapWidth && row >= 0 && row < mapHeight) {
+          const directions = [
+            { dc: -1, dr: -1 },  // Northwest
+            { dc: -1, dr: 0 },   // West
+            { dc: 0, dr: -1 },   // North
+          ];
+
+          for (let step = 0; step <= occlusionSteps; step++) {
+            for (const dir of directions) {
+              const shadowCol = col + dir.dc * step;
+              const shadowRow = row + dir.dr * step;
+
+              if (shadowCol >= 0 && shadowCol < mapWidth && shadowRow >= 0 && shadowRow < mapHeight) {
+                const shadowKey = `${shadowCol},${shadowRow}`;
+                const occlusions = this.occlusionMap.get(shadowKey) || [];
+
+                // Check if this building already occludes this tile
+                const existing = occlusions.find(o => o.buildingId === buildingId);
+                if (!existing) {
+                  occlusions.push({ buildingId, height: buildingHeight });
+                  this.occlusionMap.set(shadowKey, occlusions);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+
 
   /**
    * Draw default entity representation (3D box like standalone.html)
