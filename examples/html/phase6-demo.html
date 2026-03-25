@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Axial2.5D - Phase 6 Demo (Auto Multi-Tile Split)</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #1a1a2e; color: #fff; overflow: hidden; }
+    #container { display: flex; height: 100vh; }
+    #canvas-container { flex: 1; display: flex; justify-content: center; align-items: center; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); }
+    canvas { border: 2px solid #4a4a6a; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+    #sidebar { width: 260px; background: rgba(0,0,0,0.3); padding: 15px; overflow-y: auto; border-left: 1px solid #4a4a6a; }
+    h1 { font-size: 1.3em; margin-bottom: 10px; color: #4a90d9; }
+    h2 { font-size: 0.95em; margin: 12px 0 6px; color: #6a8caf; border-bottom: 1px solid #4a4a6a; padding-bottom: 4px; }
+    .stat { margin: 4px 0; font-size: 0.8em; color: #aaa; }
+    .stat span { color: #fff; }
+    button { width: 100%; padding: 7px; margin: 3px 0; background: #4a4a6a; border: none; border-radius: 4px; color: #fff; cursor: pointer; font-size: 0.85em; }
+    button:hover { background: #5a5a7a; }
+    button.active { background: #4a90d9; }
+    .key { display: inline-block; background: #333; padding: 2px 5px; border-radius: 3px; font-size: 0.7em; margin: 1px; }
+    #log { background: rgba(0,0,0,0.4); border: 1px solid #4a4a6a; border-radius: 4px; padding: 6px; height: 120px; overflow-y: auto; font-family: monospace; font-size: 0.7em; margin-top: 10px; }
+    .log-msg { margin: 2px 0; }
+    .log-info { color: #4a90d9; }
+    .log-success { color: #4ad97a; }
+    .log-warn { color: #ffcc00; }
+    .layer-item { display: flex; justify-content: space-between; padding: 3px; margin: 2px 0; background: rgba(255,255,255,0.05); border-radius: 3px; font-size: 0.75em; }
+    .layer-color { width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+    input[type="range"] { width: 100%; margin: 4px 0; }
+    label { font-size: 0.75em; color: #888; display: block; margin-top: 6px; }
+  </style>
+</head>
+<body>
+<div id="container">
+  <div id="canvas-container"><canvas id="gameCanvas" width="800" height="600"></canvas></div>
+  <div id="sidebar">
+    <h1>🎮 Axial2.5D Phase 5</h1>
+    <h2>📊 Status</h2>
+    <div class="stat">FPS: <span id="fps">0</span></div>
+    <div class="stat">Player: <span id="playerPos">0, 0</span></div>
+    <div class="stat">Occlusion: <span id="occlusion">VISIBLE</span></div>
+    <h2>🎯 Controls</h2>
+    <div class="stat"><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span> Move</div>
+    <div class="stat"><span class="key">Click</span> Move to tile</div>
+    <div class="stat"><span class="key">Drag</span> Pan camera</div>
+    <div class="stat"><span class="key">Wheel</span> Zoom</div>
+    <h2>⚙️ Settings</h2>
+    <button id="btnGrid">📐 Grid: ON</button>
+    <button id="btnDebug">🐛 Debug: OFF</button>
+    <button id="btnClouds">☁️ Regenerate Clouds</button>
+    <label>前景透明度：<span id="fgAlphaVal">0.6</span></label>
+    <input type="range" id="fgAlphaSlider" min="0.2" max="1.0" step="0.1" value="0.6">
+    <label>Z 轴间距：<span id="zStepVal">30</span></label>
+    <input type="range" id="zStepSlider" min="0" max="100" step="10" value="30">
+    <label>视差范围�?span id="parallaxRangeVal">0.7</span></label>
+    <input type="range" id="parallaxRangeSlider" min="0" max="1.0" step="0.1" value="0.7">
+    <h2>📊 Layers</h2>
+    <div id="layerList"></div>
+    <h2>📜 Log</h2>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script type="module">
+import { Game, LayerManager, EffectSystem, CameraController, OcclusionSystem, UIDataBinder, DebugRenderer, LayerList, gridToWorld, worldToGrid } from '../../src/index.ts';
+
+// ==================== Configuration ====================
+const CONFIG = { width: 800, height: 600, mapSize: 12, cellSize: 50, layerCount: 5 };
+const LAYER_COLORS = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#ffeaa7'];
+
+// ==================== Game State ====================
+const state = {
+  showGrid: true,
+  showDebug: false
+};
+
+// ==================== Game Setup (Phase 6 - Config System) ====================
+const game = new Game({
+  width: CONFIG.width,
+  height: CONFIG.height,
+  canvas: document.getElementById('gameCanvas'),
+  projection: { type: 'isometric', viewAngle: 30 },
+  config: {
+    'render.showGrid': true,
+    'render.foregroundAlpha': 0.6,
+    'render.zIndexStep': 30,
+    'render.parallaxRange': 0.7,
+    'debug.enabled': false
+  },
+  modules: {
+    layerManager: { enabled: true, layerCount: 5, foregroundAlpha: 0.6, zIndexStep: 30, parallaxRange: 0.7 },
+    cameraController: { enabled: true, followEntity: 'player', smoothness: 0.1, autoParallax: true },
+    occlusionSystem: { enabled: true },
+    effectSystem: { enabled: true },
+    uiManager: { enabled: true, autoUpdate: true, logElementId: 'log' },
+    playerController: { enabled: true, entityId: 'player', clickToMove: true, wasdKeys: true },
+    debugPanel: { enabled: false }
+  }
+});
+
+game.init({ width: CONFIG.mapSize, height: CONFIG.mapSize, tileW: CONFIG.cellSize, tileH: CONFIG.cellSize, tiles: [] });
+
+// Get modules
+const { layerManager, effectSystem, cameraController, occlusionSystem, uiManager } = game.modules;
+
+// Initialize DebugRenderer (Phase 3)
+const debugRenderer = new DebugRenderer();
+
+// Setup debug renderer items
+debugRenderer.addText('fps', {
+  getText: () => `FPS: ${game.stats.fps}`,
+  x: 10, y: 20, color: '#0f0',
+  enabled: () => game.config.get('debug.enabled') ?? false
+});
+
+debugRenderer.addText('stats', {
+  getText: () => `Entities: ${game.entityManager.getCount()} | Draw calls: ${game.renderer.getRenderItemCount()}`,
+  x: 10, y: 36, color: '#fff',
+  enabled: () => game.config.get('debug.enabled') ?? false
+});
+
+debugRenderer.addText('player', {
+  getText: () => {
+    const player = game.entityManager.getEntity('player');
+    return player ? `Player: (${player.col}, ${player.row})` : 'Player: (0, 0)';
+  },
+  x: 10, y: 52, color: '#4a90d9',
+  enabled: () => game.config.get('debug.enabled') ?? false
+});
+
+debugRenderer.addText('camera', {
+  getText: () => `Camera: (${game.renderer.camera.offsetX.toFixed(0)}, ${game.renderer.camera.offsetY.toFixed(0)}) zoom:${game.renderer.camera.scale.toFixed(2)}`,
+  x: 10, y: 68, color: '#aaa',
+  enabled: () => game.config.get('debug.enabled') ?? false
+});
+
+debugRenderer.addText('mouse', {
+  getText: () => {
+    const mx = game.inputManager.mouseScreenX;
+    const my = game.inputManager.mouseScreenY;
+    // Use current player position for accurate grid calculation
+    const player = game.entityManager.getEntity('player');
+    const playerCol = player?.col ?? 6;
+    const playerRow = player?.row ?? 6;
+    const mouseInfo = game.inputManager.getMouseGridPosition(playerCol, playerRow);
+    return `Mouse: Screen(${mx.toFixed(0)}, ${my.toFixed(0)}) Grid(${mouseInfo.col}, ${mouseInfo.row}) L${mouseInfo.layer}`;
+  },
+  x: 10, y: 84, color: '#ff0',
+  enabled: () => game.config.get('debug.enabled') ?? false
+});
+
+debugRenderer.addTileHighlight('mouse', {
+  getTile: () => {
+    // Get current player position for accurate grid calculation
+    const player = game.entityManager.getEntity('player');
+    const playerCol = player?.col ?? 6;
+    const playerRow = player?.row ?? 6;
+    const mouseInfo = game.inputManager.getMouseGridPosition(playerCol, playerRow);
+    return { col: mouseInfo.col, row: mouseInfo.row };
+  },
+  color: '#ff0',
+  lineWidth: 2,
+  alpha: 0.4,
+  enabled: () => game.config.get('debug.enabled') ?? false
+});
+
+debugRenderer.addText('layers', {
+  getText: () => {
+    const s = layerManager ? layerManager.getLayerStats(0) : null;
+    const parallaxRange = s ? (s.parallaxFactor - 0.3) / 0.7 : 0.7;
+    return `Layers: ${CONFIG.layerCount} | Parallax: ${parallaxRange.toFixed(1)} | Z-Step: ${Math.round(s?.zIndexOffset ?? 30)}`;
+  },
+  x: 10, y: 100, color: '#96ceb4',
+  enabled: () => game.config.get('debug.enabled') ?? false
+});
+
+// Phase 6: Multi-tile entity info
+debugRenderer.addText('multitile', {
+  getText: () => {
+    const allUnits = game.entityManager.getAllRenderUnits();
+    const entities = game.entityManager.getAllEntities();
+    const multiTileCount = entities.filter(e => e.width > 50 || e.length > 50).length;
+    return `🏢 ${entities.length} entities → ${allUnits.length} units (${multiTileCount} multi-tile)`;
+  },
+  x: 10, y: 116, color: '#4ecdc4',
+  enabled: () => game.config.get('debug.enabled') ?? false
+});
+
+// Track mouse position is no longer needed! (Phase 6)
+// game.inputManager.mouseScreenX/mouseScreenY are automatically updated
+
+// ==================== Setup Map ====================
+for (let c = 0; c < CONFIG.mapSize; c++) {
+  for (let r = 0; r < CONFIG.mapSize; r++) {
+    let type = 'grass', walkable = true;
+    if (c === 0 || c === CONFIG.mapSize-1 || r === 0 || r === CONFIG.mapSize-1) { type = 'water'; walkable = false; }
+    if (c === 6 || r === 6) type = 'road';
+    if ((c+r) % 4 === 0 && c > 1 && c < CONFIG.mapSize-2 && r > 1 && r < CONFIG.mapSize-2) type = 'stone';
+    game.gridSystem.setTileType(c, r, type, walkable);
+  }
+}
+
+// ==================== Setup Entities ====================
+game.entityManager.addEntity({
+  id: 'player', col: 6, row: 6, width: 40, length: 40, height: 40,
+  colors: ['#ff6b6b', '#ff5252', '#ff3838', '#e03030', '#ff6b6b', '#c02020']
+});
+
+// Phase 6: Multi-tile buildings (framework auto-splits!)
+// Application layer just specifies world dimensions - no manual splitting needed
+const buildings = [
+  // Large buildings (auto-split into multiple render units)
+  { id: 'megatower', col: 4, row: 4, width: 150, length: 150, height: 140 },  // 3x3 tiles
+  { id: 'tower1', col: 7, row: 5, width: 100, length: 100, height: 120 },      // 2x2 tiles
+  { id: 'tower2', col: 8, row: 7, width: 100, length: 100, height: 100 },      // 2x2 tiles
+  
+  // Medium buildings
+  { id: 'townhall', col: 2, row: 2, width: 120, length: 120, height: 80 },     // 2.4x2.4 tiles
+  { id: 'market', col: 9, row: 2, width: 80, length: 100, height: 60 },        // 1.6x2 tiles
+  
+  // Small buildings (single tile or close)
+  { id: 'house1', col: 2, row: 9, width: 60, length: 60, height: 50 },         // ~1x1 tile
+  { id: 'warehouse', col: 9, row: 9, width: 70, length: 80, height: 50 }       // ~1.4x1.6 tiles
+];
+
+const buildingColors = [
+  ['#ffd700', '#daa520', '#b8860b', '#8b6914', '#daa520', '#654321'],  // Gold (megatower)
+  ['#f5deb3', '#deb887', '#cd853f', '#b8860b', '#daa520', '#8b4513'],  // Wheat (towers)
+  ['#8b0000', '#a52a2a', '#8b0000', '#654321', '#8b4513', '#654321'],  // Red (townhall)
+  ['#2e8b57', '#3cb371', '#2e8b57', '#654321', '#8b4513', '#654321'],  // Green (market)
+  ['#4169e1', '#6495ed', '#4169e1', '#654321', '#8b4513', '#654321'],  // Blue (house)
+  ['#708090', '#778899', '#708090', '#654321', '#8b4513', '#654321'],  // Gray (warehouse)
+  ['#9370db', '#8b7ab8', '#9370db', '#654321', '#8b4513', '#654321']   // Purple
+];
+
+buildings.forEach((b, i) => {
+  game.entityManager.addEntity({ ...b, depth: 0, visible: true, colors: buildingColors[i % buildingColors.length] });
+});
+
+// Phase 6: Show multi-tile splitting info
+const totalRenderUnits = game.entityManager.getAllRenderUnits().length;
+game.log?.success(`Added ${buildings.length + 1} entities`);
+game.log?.info(`Phase 6: Auto-split into ${totalRenderUnits} render units for correct depth sorting!`);
+
+// ==================== Setup Effects (Phase 5 Builder API) ====================
+function regenerateClouds() {
+  effectSystem.clear();
+  
+  // Layer 4: White clouds (6 clouds)
+  effectSystem.addClouds(6, { 
+    layer: 4, 
+    sizeRange: [40, 80], 
+    color: '#ffffff', 
+    mapSize: CONFIG.mapSize 
+  });
+  
+  // Layer 2-3: Colored clouds (2-3 clouds per layer)
+  effectSystem.addClouds(2, { 
+    layer: 2, 
+    sizeRange: [35, 60], 
+    color: '#4ecdc4', 
+    mapSize: CONFIG.mapSize 
+  });
+  
+  effectSystem.addClouds(2, { 
+    layer: 1, 
+    sizeRange: [30, 55], 
+    color: '#ff6b6b', 
+    mapSize: CONFIG.mapSize 
+  });
+  
+  effectSystem.addClouds(2, { 
+    layer: 3, 
+    sizeRange: [35, 60], 
+    color: '#45b7d1', 
+    mapSize: CONFIG.mapSize 
+  });
+  
+  game.log?.success(`☁️ Generated ${effectSystem.getCount()} clouds`);
+}
+
+regenerateClouds();
+
+// ==================== UI Bindings (Phase 5) ====================
+uiManager.bindText('fps', () => game.stats.fps);
+uiManager.bindText('playerPos', () => {
+  const p = game.entityManager.getEntity('player');
+  return p ? `${p.col}, ${p.row}` : '0, 0';
+});
+
+uiManager.bind('occlusion', (el) => {
+  const player = game.entityManager.getEntity('player');
+  if (!player) return;
+  const occlusions = occlusionSystem.getOccludingBuildings(player);
+  const isOccluded = occlusions.some(o => o.height > player.height);
+  el.textContent = isOccluded ? `OCCLUDED by ${occlusions.map(o => o.buildingId).join(', ')}` : 'VISIBLE (normal)';
+  el.style.color = isOccluded ? '#4ecdc4' : '#4ad97a';
+});
+
+// LayerList component (Phase 6 - automatic)
+uiManager.addLayerList('layerList', {
+  layerColors: LAYER_COLORS,
+  showStats: ['tiles', 'entities', 'clouds']
+});
+
+// Toggle buttons (Phase 6 - automatic state management)
+uiManager.toggleButtonForConfig('btnGrid', 'render.showGrid', {
+  getText: (state) => `📐 Grid: ${state ? 'ON' : 'OFF'}`,
+  activeClass: 'active'
+});
+
+uiManager.toggleButtonForConfig('btnDebug', 'debug.enabled', {
+  getText: (state) => `🐛 Debug: ${state ? 'ON' : 'OFF'}`
+});
+
+uiManager.bindButton('btnClouds', () => regenerateClouds());
+
+// ==================== Slider Bindings (Phase 6 - Config System) ====================
+uiManager.bindSliderToConfig('fgAlphaSlider', 'render.foregroundAlpha', 'fgAlphaVal');
+uiManager.bindSliderToConfig('zStepSlider', 'render.zIndexStep', 'zStepVal');
+uiManager.bindSliderToConfig('parallaxRangeSlider', 'render.parallaxRange', 'parallaxRangeVal');
+
+// Sync config changes to LayerManager (Phase 6)
+game.config.on('render.foregroundAlpha', (v) => {
+  layerManager.updateLayerProperties({ foregroundAlpha: v });
+});
+game.config.on('render.zIndexStep', (v) => {
+  layerManager.updateLayerProperties({ zIndexStep: v });
+});
+game.config.on('render.parallaxRange', (v) => {
+  layerManager.updateLayerProperties({ parallaxRange: v });
+});
+
+// ==================== Input Handling (Phase 6 - automatic via PlayerController) ====================
+// No manual event handling needed! PlayerController module handles:
+// - WASD/Arrow key movement
+// - Click-to-move
+// - Path validation
+// - Camera follow
+
+// Legacy event handlers removed (handled by PlayerController module)
+
+// ==================== Render Hook ====================
+game.renderHooks = {
+  onAfterLayers: (ctx) => {
+    // Render debug items when enabled
+    if (game.config.get('debug.enabled') ?? false) {
+      debugRenderer.render(ctx, game.gridSystem, game.renderer.camera, game.projection);
+    }
+  },
+  onBeforePresent: () => { 
+    // LayerList auto-updates via UIManager.updateAll()
+  }
+};
+
+// ==================== Start Game ====================
+game.start();
+game.log?.success('🎮 Axial2.5D Phase 5 started!');
+game.log?.info(`Map: ${CONFIG.mapSize}x${CONFIG.mapSize}, ${CONFIG.layerCount} layers`);
+</script>
+</body>
+</html>

@@ -67,11 +67,11 @@ export class MultiTileEntity {
   /**
    * Check if an entity spans multiple tiles
    */
-  public isMultiTile(entity: Entity): boolean {
+  public isMultiTile(entity: any): boolean {
     if (!this.enabled) return false;
     
-    const tilesWide = Math.ceil(entity.width / this.tileSize);
-    const tilesLong = Math.ceil(entity.length / this.tileSize);
+    const tilesWide = Math.ceil((entity.width || 50) / this.tileSize);
+    const tilesLong = Math.ceil((entity.length || 50) / this.tileSize);
     
     return tilesWide > 1 || tilesLong > 1;
   }
@@ -80,7 +80,7 @@ export class MultiTileEntity {
    * Split a multi-tile entity into render units
    * Each unit represents one tile of the building
    */
-  public splitEntity(entity: Entity, gridSystem: GridSystem): MultiTileRenderUnit[] {
+  public splitEntity(entity: any, gridSystem: GridSystem): MultiTileRenderUnit[] {
     if (!this.isMultiTile(entity)) {
       // Single tile entity - return as-is
       const depth = this.calculateUnitDepth(entity.col, entity.row, entity, gridSystem);
@@ -91,17 +91,17 @@ export class MultiTileEntity {
         depth,
         offsetX: 0,
         offsetZ: 0,
-        width: entity.width,
-        length: entity.length,
+        width: entity.width || 50,
+        length: entity.length || 50,
         height: entity.height,
-        colors: entity.colors
+        colors: (entity as any).colors
       }];
     }
 
     // Multi-tile entity - split into units
     const units: MultiTileRenderUnit[] = [];
-    const tilesWide = Math.ceil(entity.width / this.tileSize);
-    const tilesLong = Math.ceil(entity.length / this.tileSize);
+    const tilesWide = Math.ceil((entity.width || 50) / this.tileSize);
+    const tilesLong = Math.ceil((entity.length || 50) / this.tileSize);
 
     for (let tCol = 0; tCol < tilesWide; tCol++) {
       for (let tRow = 0; tRow < tilesLong; tRow++) {
@@ -116,6 +116,9 @@ export class MultiTileEntity {
         // Calculate depth for this specific unit
         const depth = this.calculateUnitDepth(unitCol, unitRow, entity, gridSystem);
 
+        const entityWidth = entity.width || 50;
+        const entityLength = entity.length || 50;
+
         units.push({
           entityId: entity.id,
           col: unitCol,
@@ -123,10 +126,10 @@ export class MultiTileEntity {
           depth,
           offsetX,
           offsetZ,
-          width: Math.min(this.tileSize, entity.width - offsetX),
-          length: Math.min(this.tileSize, entity.length - offsetZ),
+          width: Math.min(this.tileSize, entityWidth - offsetX),
+          length: Math.min(this.tileSize, entityLength - offsetZ),
           height: entity.height,
-          colors: entity.colors
+          colors: (entity as any).colors
         });
       }
     }
@@ -141,31 +144,15 @@ export class MultiTileEntity {
   private calculateUnitDepth(
     col: number,
     row: number,
-    entity: Entity,
+    entity: any,
     gridSystem: GridSystem
   ): number {
     // Convert grid position to world position
     const worldPos = gridSystem.gridToWorld(col, row);
     
-    // Calculate screen Y position (depth)
-    // Use entity height for correct occlusion (matches standalone.html)
-    const projection = gridSystem.getProjection();
-    const camera = gridSystem.getCamera();
-    
-    if (!projection || !camera) {
-      // Fallback to simple depth calculation
-      return col + row;
-    }
-
-    const screenPos = projection.worldToScreen(
-      worldPos.x,
-      worldPos.z,
-      0, // Base at ground level
-      camera
-    );
-
-    // Depth = screen Y + entity height (for correct occlusion)
-    return screenPos.sy + entity.height;
+    // Fallback to simple depth calculation
+    // Actual depth calculation will be done during rendering
+    return col + row + (entity.height || 0) / 50;
   }
 
   /**
