@@ -36,13 +36,13 @@ import { Projection } from './Projection';
 import { IsoCamera } from './IsoCamera';
 import { EventBus } from '../utils/EventBus';
 
-// Forward declarations (will be imported dynamically to avoid circular deps)
-export type CameraController = any;
-export type OcclusionSystem = any;
-export type EffectSystem = any;
-export type UIManager = any;
-export type DebugPanel = any;
-export type LayerManager = any;
+// Import modules directly (no circular dependencies)
+import { CameraController } from '../controllers/CameraController';
+import { OcclusionSystem } from '../systems/OcclusionSystem';
+import { EffectSystem } from '../effects/EffectSystem';
+import { UIManager } from '../ui/UIManager';
+import { DebugPanel } from '../debug/DebugPanel';
+import { LayerManager } from './LayerManager';
 
 export interface ModuleConfig {
   cameraController?: {
@@ -128,7 +128,6 @@ export class ModuleManager {
     if (!cfg?.enabled) return;
 
     try {
-      const { LayerManager } = require('../core/LayerManager');
       this.modules.layerManager = new LayerManager({
         layerCount: cfg.layerCount ?? 5,
         foregroundAlpha: cfg.foregroundAlpha ?? 0.6,
@@ -147,9 +146,12 @@ export class ModuleManager {
   private initCameraController(): void {
     const cfg = this.config.cameraController;
     if (!cfg?.enabled) return;
+    if (!this.game.gridSystem || !this.game.entityManager) {
+      console.warn('CameraController requires gridSystem and entityManager to be initialized');
+      return;
+    }
 
     try {
-      const { CameraController } = require('../controllers/CameraController');
       this.modules.cameraController = new CameraController({
         camera: this.game.renderer.camera,
         projection: this.game.projection,
@@ -183,10 +185,12 @@ export class ModuleManager {
   private initOcclusionSystem(): void {
     const cfg = this.config.occlusionSystem;
     if (!cfg?.enabled) return;
-    if (!this.game.entityManager || !this.game.gridSystem) return;
+    if (!this.game.entityManager || !this.game.gridSystem) {
+      console.warn('OcclusionSystem requires entityManager and gridSystem to be initialized');
+      return;
+    }
 
     try {
-      const { OcclusionSystem } = require('../systems/OcclusionSystem');
       this.modules.occlusionSystem = new OcclusionSystem({
         entityManager: this.game.entityManager,
         gridSystem: this.game.gridSystem,
@@ -210,7 +214,6 @@ export class ModuleManager {
     if (!cfg?.enabled) return;
 
     try {
-      const { EffectSystem } = require('../effects/EffectSystem');
       this.modules.effectSystem = new EffectSystem(
         this.game.renderer.camera,
         this.game.projection,
@@ -231,9 +234,10 @@ export class ModuleManager {
     if (!cfg?.enabled) return;
 
     try {
-      const { UIManager } = require('../ui/UIManager');
       this.modules.uiManager = new UIManager(this.game.eventBus);
-      this.modules.uiManager.setInputManager(this.game.inputManager);
+      if (this.game.inputManager) {
+        this.modules.uiManager.setInputManager(this.game.inputManager);
+      }
 
       // Attach logger to DOM if specified
       if (cfg.logElementId) {
@@ -262,9 +266,12 @@ export class ModuleManager {
   private initDebugPanel(): void {
     const cfg = this.config.debugPanel;
     if (!cfg?.enabled) return;
+    if (!this.game.gridSystem) {
+      console.warn('DebugPanel requires gridSystem to be initialized');
+      return;
+    }
 
     try {
-      const { DebugPanel } = require('../debug/DebugPanel');
       this.modules.debugPanel = new DebugPanel(
         this.game,
         this.game.gridSystem,
