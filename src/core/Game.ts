@@ -103,7 +103,15 @@ export class Game {
   
   // Phase 6: Getter for render options (for toggleButton)
   public get renderOptions() {
-    return this._renderOptions;
+    // Sync from config if available
+    return {
+      showGrid: this.config?.get('render.showGrid') ?? this._renderOptions.showGrid,
+      layerCount: this._renderOptions.layerCount,
+      foregroundAlpha: this.config?.get('render.foregroundAlpha') ?? this._renderOptions.foregroundAlpha,
+      zIndexStep: this.config?.get('render.zIndexStep') ?? this._renderOptions.zIndexStep,
+      parallaxRange: this.config?.get('render.parallaxRange') ?? this._renderOptions.parallaxRange,
+      maxDepth: this._renderOptions.maxDepth
+    };
   }
   public onBeforeRender?: (ctx: CanvasRenderingContext2D) => void;
   public onAfterRender?: (ctx: CanvasRenderingContext2D) => void;
@@ -526,13 +534,13 @@ export class Game {
   }): void {
     if (!this.gridSystem || !this.entityManager) return;
 
-    // Merge options: passed options > stored renderOptions > defaults
-    const layerCount = options?.layerCount ?? this.renderOptions.layerCount ?? 5;
-    const showGrid = options?.showGrid ?? this.renderOptions.showGrid ?? true;
-    const foregroundAlpha = options?.foregroundAlpha ?? this.renderOptions.foregroundAlpha ?? 0.6;
-    const zIndexStep = options?.zIndexStep ?? this.renderOptions.zIndexStep ?? 30;
-    const parallaxRange = options?.parallaxRange ?? this.renderOptions.parallaxRange ?? 0.7;
-    const maxDepth = options?.maxDepth ?? this.renderOptions.maxDepth ?? 2000;
+    // Merge options: passed options > config > stored renderOptions > defaults
+    const layerCount = options?.layerCount ?? this.config?.get('render.layerCount') ?? this._renderOptions.layerCount ?? 5;
+    const showGrid = options?.showGrid ?? this.config?.get('render.showGrid') ?? this._renderOptions.showGrid ?? true;
+    const foregroundAlpha = options?.foregroundAlpha ?? this.config?.get('render.foregroundAlpha') ?? this._renderOptions.foregroundAlpha ?? 0.6;
+    const zIndexStep = options?.zIndexStep ?? this.config?.get('render.zIndexStep') ?? this._renderOptions.zIndexStep ?? 30;
+    const parallaxRange = options?.parallaxRange ?? this.config?.get('render.parallaxRange') ?? this._renderOptions.parallaxRange ?? 0.7;
+    const maxDepth = options?.maxDepth ?? this._renderOptions.maxDepth ?? 2000;
 
     const ctx = this.renderer.ctx as CanvasRenderingContext2D;
     const camera = this.renderer.camera;
