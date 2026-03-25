@@ -139,11 +139,48 @@ export class UIManager {
   }
 
   /**
+   * Bind text content to a value provider (convenience method)
+   */
+  public bindText(elementId: string, provider: () => any): void {
+    if (typeof document === 'undefined') return;
+
+    const el = document.getElementById(elementId);
+    if (!el) {
+      console.warn(`UIManager: Element "${elementId}" not found`);
+      return;
+    }
+
+    // Store update function for updateAll()
+    const updateFn = () => {
+      el.textContent = String(provider());
+    };
+
+    // Initial update
+    updateFn();
+
+    // For reactive updates, we'd need to call this every frame
+    // For now, store in a map for updateAll() to process
+    if (!(this as any)._textBindings) {
+      (this as any)._textBindings = new Map();
+    }
+    (this as any)._textBindings.set(elementId, updateFn);
+  }
+
+  /**
    * Update all UI bindings (call every frame if needed)
    */
   public updateAll(): void {
-    // Currently button/slider bindings are event-driven
-    // This method is here for future reactive bindings
+    // Update text bindings
+    if ((this as any)._textBindings) {
+      for (const updateFn of (this as any)._textBindings.values()) {
+        try {
+          updateFn();
+        } catch (e) {
+          console.error('UIManager: Error updating text binding:', e);
+        }
+      }
+    }
+    // Button/slider bindings are event-driven
   }
 
   /**
