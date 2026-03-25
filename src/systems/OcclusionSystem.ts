@@ -140,10 +140,28 @@ export class OcclusionSystem {
         const row = buildingRow + dr;
         
         if (col >= 0 && col < this.mapWidth && row >= 0 && row < this.mapHeight) {
+          // Coordinate system: origin (0,0) at NW, col increases NE (screen right),
+          // row increases SW (screen left).  Camera is at SE looking NW.
+          //
+          // A building has 3 visible faces in isometric view:
+          //   - Top face
+          //   - East/right face  (col-axis side, faces right on screen)
+          //   - South/left face  (row-axis side, faces left on screen)
+          //
+          // Characters are OCCLUDED when they stand in the building's "blind zone"
+          // – the area blocked by those visible faces, i.e. directly BEHIND the
+          // building from the camera's perspective (NW of the building footprint):
+          //
+          //   (-1, 0)  → West: blocked by the building's South/left face
+          //   ( 0,-1)  → North: blocked by the building's East/right face
+          //   (-1,-1)  → NW corner: blocked by both faces simultaneously
+          //
+          // E(+1,0) and S(0,+1) tiles are on the VISIBLE sides – not occluded.
+          // SE(+1,+1) tiles are in FRONT of the building – definitely not occluded.
           const directions = [
-            { dc: -1, dr: -1 },  // Northwest
-            { dc: -1, dr: 0 },   // West
-            { dc: 0, dr: -1 },   // North
+            { dc: -1, dr:  0 },  // West  – behind South face
+            { dc:  0, dr: -1 },  // North – behind East face
+            { dc: -1, dr: -1 },  // NW    – behind both faces (corner)
           ];
 
           for (let step = 1; step <= occlusionSteps; step++) {
@@ -184,11 +202,28 @@ export class OcclusionSystem {
   }
 
   /**
-   * Get all buildings that occlude an entity
+   * Get all buildings that occlude an entity.
+   *
+   * Coordinate system: origin (0,0) at NW, col/row increase toward SE.
+   * Camera is at SE looking NW → a building occludes an entity when the
+   * building's body stands BETWEEN the camera and the entity.
+   *
+   * The occluded tiles are cast in the NW directions from each building tile
+   * (see calculateBuildingOcclusion).  A raw entry in occlusionMap is valid
+   * only when the building is actually in the foreground relative to the entity,
+   * i.e. the building's SE-corner depth (southeastCol + southeastRow) is
+   * GREATER THAN the entity's depth (col + row).
+   *
+   * This guards against spurious entries where a tiny background building's
+   * shadow accidentally overlaps a foreground tile.
    */
   public getOccludingBuildings(entity: Entity): OcclusionData[] {
     const key = `${entity.col},${entity.row}`;
-    return this.occlusionMap.get(key) || [];
+    const raw = this.occlusionMap.get(key) || [];
+    const entityDepth = entity.col + entity.row;
+    // Only keep buildings whose SE-corner depth is strictly greater than the
+    // entity's depth – those are in the foreground (southeast) of the entity.
+    return raw.filter(occ => occ.depth > entityDepth);
   }
 
   /**

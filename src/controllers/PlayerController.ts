@@ -69,6 +69,10 @@ export class PlayerController {
   private enabled: boolean = false;
   private moveCallbacks: MoveCallback[] = [];
   
+  // Saved handler references for proper eventBus.off() cleanup
+  private _boundHandleTileClick?: (data: any) => void;
+  private _boundHandleKeyDown?:   (data: any) => void;
+  
   private keyRepeatTimer: number = 0;
   private keyRepeatInterval: number = 150; // ms between repeated moves
   private lastMoveTime: number = 0;
@@ -229,11 +233,13 @@ export class PlayerController {
       // and is converted to grid coords by Game.setupDefaultInputHandlers, which then
       // emits 'tileClick' with { col, row }. Using 'tileClick' avoids duplicating the
       // screen→world→grid conversion and keeps the controller independent of projection.
-      this.eventBus.on('tileClick', (data) => this.handleTileClick(data));
+      this._boundHandleTileClick = (data) => this.handleTileClick(data);
+      this.eventBus.on('tileClick', this._boundHandleTileClick);
     }
 
     if (this.config.allowKeyboardMove) {
-      this.eventBus.on('keyDown', (data) => this.handleKeyDown(data));
+      this._boundHandleKeyDown = (data) => this.handleKeyDown(data);
+      this.eventBus.on('keyDown', this._boundHandleKeyDown);
     }
   }
 
@@ -241,8 +247,14 @@ export class PlayerController {
    * Remove input event listeners
    */
   private removeEventListeners(): void {
-    // Note: EventBus doesn't have off() in current impl
-    // In production, should add proper cleanup
+    if (this._boundHandleTileClick) {
+      this.eventBus.off('tileClick', this._boundHandleTileClick);
+      this._boundHandleTileClick = undefined;
+    }
+    if (this._boundHandleKeyDown) {
+      this.eventBus.off('keyDown', this._boundHandleKeyDown);
+      this._boundHandleKeyDown = undefined;
+    }
   }
 
   /**

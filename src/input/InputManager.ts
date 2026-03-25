@@ -49,6 +49,15 @@ export class InputManager {
 
   private keyState: Map<string, boolean> = new Map();
   
+  // Bound event handler references – kept so destroy() can removeEventListener them
+  private _boundOnMouseMove!: (e: MouseEvent) => void;
+  private _boundOnMouseDown!: (e: MouseEvent) => void;
+  private _boundOnMouseUp!:   (e: MouseEvent) => void;
+  private _boundOnWheel!:     (e: WheelEvent) => void;
+  private _boundOnClick!:     (e: MouseEvent) => void;
+  private _boundOnKeyDown!:   (e: KeyboardEvent) => void;
+  private _boundOnKeyUp!:     (e: KeyboardEvent) => void;
+  
   // Current player position (used for click parallax calculation)
   // Call setPlayerPosition() every frame when the player moves to keep this accurate.
   private playerCol: number = 0;
@@ -186,7 +195,9 @@ export class InputManager {
     // Fallback: mirror the formula used in Game.renderDefault
     const playerDepth = playerCol + playerRow;
     const playerLayer = Math.floor((playerDepth / this.maxDepth) * this.layerCount);
-    return 0.3 + (playerLayer / (this.layerCount - 1)) * this.parallaxRange;
+    // Guard against layerCount=1 (denominator=0)
+    const layerDenom = this.layerCount > 1 ? this.layerCount - 1 : 1;
+    return 0.3 + (playerLayer / layerDenom) * this.parallaxRange;
   }
 
   /**
@@ -283,19 +294,28 @@ export class InputManager {
    * Setup mouse event listeners
    */
   private setupMouseListeners(): void {
-    this.canvas.addEventListener('mousemove', e => this.onMouseMove(e));
-    this.canvas.addEventListener('mousedown', e => this.onMouseDown(e));
-    this.canvas.addEventListener('mouseup', e => this.onMouseUp(e));
-    this.canvas.addEventListener('wheel', e => this.onWheel(e), { passive: false });
-    this.canvas.addEventListener('click', e => this.onClick(e));
+    this._boundOnMouseMove = e => this.onMouseMove(e);
+    this._boundOnMouseDown = e => this.onMouseDown(e);
+    this._boundOnMouseUp   = e => this.onMouseUp(e);
+    this._boundOnWheel     = e => this.onWheel(e);
+    this._boundOnClick     = e => this.onClick(e);
+
+    this.canvas.addEventListener('mousemove', this._boundOnMouseMove);
+    this.canvas.addEventListener('mousedown', this._boundOnMouseDown);
+    this.canvas.addEventListener('mouseup',   this._boundOnMouseUp);
+    this.canvas.addEventListener('wheel',     this._boundOnWheel, { passive: false });
+    this.canvas.addEventListener('click',     this._boundOnClick);
   }
 
   /**
    * Setup keyboard event listeners
    */
   private setupKeyboardListeners(): void {
-    window.addEventListener('keydown', e => this.onKeyDown(e));
-    window.addEventListener('keyup', e => this.onKeyUp(e));
+    this._boundOnKeyDown = e => this.onKeyDown(e);
+    this._boundOnKeyUp   = e => this.onKeyUp(e);
+
+    window.addEventListener('keydown', this._boundOnKeyDown);
+    window.addEventListener('keyup',   this._boundOnKeyUp);
   }
 
   private onMouseMove(e: MouseEvent): void {
@@ -397,9 +417,20 @@ export class InputManager {
   }
 
   /**
-   * Destroy input manager and remove listeners
+   * Destroy input manager and remove all event listeners
    */
   public destroy(): void {
-    // Cleanup would go here in a full implementation
+    if (this._boundOnMouseMove) {
+      this.canvas.removeEventListener('mousemove', this._boundOnMouseMove);
+      this.canvas.removeEventListener('mousedown', this._boundOnMouseDown);
+      this.canvas.removeEventListener('mouseup',   this._boundOnMouseUp);
+      this.canvas.removeEventListener('wheel',     this._boundOnWheel);
+      this.canvas.removeEventListener('click',     this._boundOnClick);
+    }
+    if (this._boundOnKeyDown) {
+      window.removeEventListener('keydown', this._boundOnKeyDown);
+      window.removeEventListener('keyup',   this._boundOnKeyUp);
+    }
+    this.keyState.clear();
   }
 }

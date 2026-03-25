@@ -51,6 +51,26 @@ export class EntityManager {
   }
 
   /**
+   * Normalise a plain-object entity so it always has the Entity helper methods
+   * (isBuilding, isCharacter).  Plain JS objects are structurally compatible with
+   * the Entity interface but lack its prototype methods.  When entityType is not
+   * set we fall back to the legacy height>=50 heuristic so existing demo code
+   * continues to work without change.
+   */
+  private normaliseEntity(entity: Entity): Entity {
+    if (typeof (entity as any).isBuilding !== 'function') {
+      const e = entity as any;
+      // Auto-detect entityType from height when not explicitly set
+      if (!e.entityType) {
+        e.entityType = e.height >= 50 ? 'building' : 'character';
+      }
+      e.isBuilding  = function() { return this.entityType === 'building'; };
+      e.isCharacter = function() { return this.entityType === 'character'; };
+    }
+    return entity;
+  }
+
+  /**
    * Add an entity to the manager
    */
   public addEntity(entity: Entity): void {
@@ -58,6 +78,9 @@ export class EntityManager {
       console.warn(`Entity with id "${entity.id}" already exists`);
       return;
     }
+
+    // Ensure plain-object entities have the required helper methods
+    entity = this.normaliseEntity(entity);
     
     this.entities.set(entity.id, entity);
     this.syncEntityPosition(entity);
@@ -272,9 +295,17 @@ export class EntityManager {
    */
   public updateAll(delta: number = 16): void {
     for (const entity of this.entities.values()) {
+      const isDynamic = typeof (entity as any).isCharacter === 'function'
+        ? (entity as any).isCharacter()
+        : (entity as any).entityType === 'character';
+
       if (entity.update) {
         entity.update(delta);
       }
+
+      // Static buildings never move – their depth and renderUnits are set once at addEntity time.
+      // Only recalculate for dynamic entities (characters) that may have moved this frame.
+      if (!isDynamic && !entity.update) continue;
       
       // Recalculate depth based on projection
       // Match standalone.html: depth = screenY(base) + height
@@ -362,6 +393,8 @@ export class EntityManager {
       this.gridSystem.setEntity(entity.col, entity.row, null);
     }
     this.entities.clear();
+    // Also clear the render-unit cache so no stale references to removed entities remain
+    this.renderUnitsCache.clear();
   }
 
   /**
@@ -449,45 +482,71 @@ export class EntityManager {
       }
     }
 
-    // Sort ALL entities by southeast corner depth (single unified sort, non-destructive)
-    const sortedEntities = [...entities].sort((a, b) => {
-      const aIsBuilding = a.isBuilding();
-      const bIsBuilding = b.isBuilding();
-      
-      // Calculate southeast corner depth for both entities
-      const aSED = aIsBuilding 
-        ? (a.col + Math.ceil(((a as any).width || 50) / 50) - 1) + (a.row + Math.ceil(((a as any).length || 50) / 50) - 1)
-        : a.col + a.row;
-      
-      const bSED = bIsBuilding 
-        ? (b.col + Math.ceil(((b as any).width || 50) / 50) - 1) + (b.row + Math.ceil(((b as any).length || 50) / 50) - 1)
-        : b.col + b.row;
-      
-      // Primary sort: by southeast depth
-      if (aSED !== bSED) {
-        return aSED - bSED;
-      }
-      
-      // Secondary sort: when depth is equal, characters render after buildings
-      // (characters should appear in front of buildings at same depth)
-      if (aIsBuilding !== bIsBuilding) {
-        return aIsBuilding ? -1 : 1; // buildings first, characters last
-      }
-      
-      // Tertiary sort: by row (south first), then by col (east first)
-      if (a.row !== b.row) {
-        return b.row - a.row;
-      }
-      return b.col - a.col;
-    });
+    // Two-pass rendering for correct occlusion visuals:
+    //
+    // The occlusion effect requires a semi-transparent building to be drawn ON TOP
+    // of the character it occludes – regardless of which side (W, N, NW) the
+    // character is on relative to the building.  A single depth-sorted pass cannot
+    // achieve this for all directions (e.g. player at W of building has a smaller
+    // depth than the building's NW anchor, so a unified sort would draw the building
+    // first and the character on top, which is backwards for the occlusion visual).
+    //
+    // Solution – split into two passes:
+    //   Pass 1: Draw all NON-semi-transparent buildings + all characters, sorted by
+    //           NW-anchor depth (back to front).  Semi-transparent buildings are
+    //           skipped here so they do not occlude characters that share the same
+    //           depth bucket.
+    //   Pass 2: Draw all semi-transparent buildings on top (sorted by SE-corner depth
+    //           among themselves so they don't incorrectly overlap each other).
+    //           Being drawn last guarantees they visually overlay the character.
+    //
+    // tileSize assumed 50 (matches multiTileSplitter default)
+    const TILE = 50;
 
-    // Single pass: draw all entities in depth order
-    for (const entity of sortedEntities) {
-      const isBuilding = entity.isBuilding();
-      const isSemiTransparent = isBuilding && semiTransparentBuildings.has(entity.id);
-      const alpha = isSemiTransparent ? 0.5 : 1.0;
-      
-      this.drawEntity(ctx, entity, parallaxFactor, wireframe, alpha);
+    // Depth comparator used for Pass 1 (NW anchor for all)
+    const depthByNW = (a: Entity, b: Entity) => {
+      const aNW = a.col + a.row;
+      const bNW = b.col + b.row;
+      if (aNW !== bNW) return aNW - bNW;
+      // Tie: buildings before characters (character visually "stands on" the tile)
+      const aB = a.isBuilding(), bB = b.isBuilding();
+      if (aB !== bB) return aB ? -1 : 1;
+      if (a.row !== b.row) return b.row - a.row;
+      return b.col - a.col;
+    };
+
+    // Depth comparator for semi-transparent buildings among themselves (SE corner)
+    const depthBySE = (a: Entity, b: Entity) => {
+      const aSE = (a.col + Math.ceil(((a as any).width || TILE) / TILE) - 1)
+                + (a.row + Math.ceil(((a as any).length || TILE) / TILE) - 1);
+      const bSE = (b.col + Math.ceil(((b as any).width || TILE) / TILE) - 1)
+                + (b.row + Math.ceil(((b as any).length || TILE) / TILE) - 1);
+      return aSE - bSE;
+    };
+
+    // Partition entities
+    const pass1: Entity[] = [];
+    const pass2: Entity[] = []; // semi-transparent occluding buildings
+
+    for (const entity of entities) {
+      if (entity.isBuilding() && semiTransparentBuildings.has(entity.id)) {
+        pass2.push(entity);
+      } else {
+        pass1.push(entity);
+      }
+    }
+
+    pass1.sort(depthByNW);
+    pass2.sort(depthBySE);
+
+    // Pass 1: normal entities (opaque buildings + characters)
+    for (const entity of pass1) {
+      this.drawEntity(ctx, entity, parallaxFactor, wireframe, 1.0);
+    }
+
+    // Pass 2: semi-transparent occluding buildings drawn last (on top of characters)
+    for (const entity of pass2) {
+      this.drawEntity(ctx, entity, parallaxFactor, wireframe, 0.5);
     }
   }
 
@@ -516,45 +575,44 @@ export class EntityManager {
       }
     }
 
-    // Sort ALL entities by southeast corner depth (single unified sort, non-destructive)
-    const sortedEntities = [...entities].sort((a, b) => {
-      const aIsBuilding = a.isBuilding();
-      const bIsBuilding = b.isBuilding();
-      
-      // Calculate southeast corner depth for both entities
-      const aSED = aIsBuilding 
-        ? (a.col + Math.ceil(((a as any).width || 50) / 50) - 1) + (a.row + Math.ceil(((a as any).length || 50) / 50) - 1)
-        : a.col + a.row;
-      
-      const bSED = bIsBuilding 
-        ? (b.col + Math.ceil(((b as any).width || 50) / 50) - 1) + (b.row + Math.ceil(((b as any).length || 50) / 50) - 1)
-        : b.col + b.row;
-      
-      // Primary sort: by southeast depth
-      if (aSED !== bSED) {
-        return aSED - bSED;
+    // Two-pass rendering – same strategy as renderWithOcclusionSystem (see comment there)
+    const TILE = 50;
+
+    const pass1: Entity[] = [];
+    const pass2: Entity[] = [];
+
+    for (const entity of entities) {
+      if (entity.isBuilding() && semiTransparentBuildings.has(entity.id)) {
+        pass2.push(entity);
+      } else {
+        pass1.push(entity);
       }
-      
-      // Secondary sort: when depth is equal, characters render after buildings
-      // (characters should appear in front of buildings at same depth)
-      if (aIsBuilding !== bIsBuilding) {
-        return aIsBuilding ? -1 : 1; // buildings first, characters last
-      }
-      
-      // Tertiary sort: by row (south first), then by col (east first)
-      if (a.row !== b.row) {
-        return b.row - a.row;
-      }
+    }
+
+    // Pass 1: NW-anchor depth sort (opaque buildings + characters)
+    pass1.sort((a, b) => {
+      const aNW = a.col + a.row, bNW = b.col + b.row;
+      if (aNW !== bNW) return aNW - bNW;
+      const aB = a.isBuilding(), bB = b.isBuilding();
+      if (aB !== bB) return aB ? -1 : 1;
+      if (a.row !== b.row) return b.row - a.row;
       return b.col - a.col;
     });
 
-    // Single pass: draw all entities in depth order
-    for (const entity of sortedEntities) {
-      const isBuilding = entity.isBuilding();
-      const isSemiTransparent = isBuilding && semiTransparentBuildings.has(entity.id);
-      const alpha = isSemiTransparent ? 0.5 : 1.0;
-      
-      this.drawEntity(ctx, entity, parallaxFactor, wireframe, alpha);
+    // Pass 2: SE-corner sort for semi-transparent buildings (drawn last / on top)
+    pass2.sort((a, b) => {
+      const aSE = (a.col + Math.ceil(((a as any).width || TILE) / TILE) - 1)
+                + (a.row + Math.ceil(((a as any).length || TILE) / TILE) - 1);
+      const bSE = (b.col + Math.ceil(((b as any).width || TILE) / TILE) - 1)
+                + (b.row + Math.ceil(((b as any).length || TILE) / TILE) - 1);
+      return aSE - bSE;
+    });
+
+    for (const entity of pass1) {
+      this.drawEntity(ctx, entity, parallaxFactor, wireframe, 1.0);
+    }
+    for (const entity of pass2) {
+      this.drawEntity(ctx, entity, parallaxFactor, wireframe, 0.5);
     }
   }
 

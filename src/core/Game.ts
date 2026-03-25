@@ -83,6 +83,7 @@ export class Game {
 
   private running: boolean = false;
   private lastTime: number = 0;
+  private rafId: number = 0; // requestAnimationFrame handle – kept for cancelAnimationFrame in stop()
   private canvas: HTMLCanvasElement | OffscreenCanvas;
   private moduleConfig?: ModuleConfig;
   private _renderOptions: {
@@ -298,6 +299,10 @@ export class Game {
    */
   public stop(): void {
     this.running = false;
+    if (this.rafId) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = 0;
+    }
   }
 
   /**
@@ -318,7 +323,7 @@ export class Game {
 
     // Continue loop
     if (typeof requestAnimationFrame !== 'undefined') {
-      requestAnimationFrame(() => this.gameLoop());
+      this.rafId = requestAnimationFrame(() => this.gameLoop());
     } else {
       // Node.js fallback - run at ~60fps
       setTimeout(() => this.gameLoop(), 16);
@@ -409,9 +414,9 @@ export class Game {
       for (let i = 0; i < layerCount; i++) {
         const layerInfo = this.modules.layerManager.getLayerStats?.(i) ?? { parallaxFactor: 1, alpha: 1, zIndexOffset: 0 };
         
-        // Apply Z-axis offset for this layer (same as renderDefault)
-        if (layerInfo.zIndexOffset !== 0) {
-          ctx.save();
+        // Always save/restore: effectSystem.render may modify globalAlpha or other ctx state
+        ctx.save();
+        if (layerInfo.zIndexOffset) {
           ctx.translate(0, -layerInfo.zIndexOffset);
         }
         
@@ -420,10 +425,7 @@ export class Game {
           alpha: layerInfo.alpha ?? 1
         });
         
-        // Restore context if we applied offset
-        if (layerInfo.zIndexOffset !== 0) {
-          ctx.restore();
-        }
+        ctx.restore();
       }
     }
 
@@ -568,9 +570,10 @@ export class Game {
 
     // Render by layers (back to front): Layer 0 → Layer N
     for (let layerIdx = 0; layerIdx < layerCount; layerIdx++) {
-      // Calculate layer properties
-      const parallaxFactor = 0.3 + (layerIdx / (layerCount - 1)) * parallaxRange;
-      const alpha = 1.0 - (1.0 - foregroundAlpha) * (layerIdx / (layerCount - 1));
+      // Calculate layer properties – guard against layerCount=1 (denominator=0)
+      const layerDenom = layerCount > 1 ? layerCount - 1 : 1;
+      const parallaxFactor = 0.3 + (layerIdx / layerDenom) * parallaxRange;
+      const alpha = 1.0 - (1.0 - foregroundAlpha) * (layerIdx / layerDenom);
       const zIndexOffset = layerIdx * zIndexStep;
 
       ctx.save();
