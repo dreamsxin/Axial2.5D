@@ -167,6 +167,37 @@ export class UIManager {
   }
 
   /**
+   * Bind custom update function to an element
+   */
+  public bind(elementId: string, updater: (el: HTMLElement) => void): void {
+    if (typeof document === 'undefined') return;
+
+    const el = document.getElementById(elementId);
+    if (!el) {
+      console.warn(`UIManager: Element "${elementId}" not found`);
+      return;
+    }
+
+    // Store update function for updateAll()
+    const updateFn = () => {
+      try {
+        updater(el);
+      } catch (e) {
+        console.error(`UIManager: Error updating binding "${elementId}":`, e);
+      }
+    };
+
+    // Initial update
+    updateFn();
+
+    // Store for updateAll()
+    if (!(this as any)._customBindings) {
+      (this as any)._customBindings = new Map();
+    }
+    (this as any)._customBindings.set(elementId, updateFn);
+  }
+
+  /**
    * Update all UI bindings (call every frame if needed)
    */
   public updateAll(): void {
@@ -180,6 +211,18 @@ export class UIManager {
         }
       }
     }
+    
+    // Update custom bindings
+    if ((this as any)._customBindings) {
+      for (const updateFn of (this as any)._customBindings.values()) {
+        try {
+          updateFn();
+        } catch (e) {
+          console.error('UIManager: Error updating custom binding:', e);
+        }
+      }
+    }
+    
     // Button/slider bindings are event-driven
   }
 
