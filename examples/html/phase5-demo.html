@@ -131,7 +131,11 @@ debugRenderer.addText('mouse', {
   getText: () => {
     const mx = game.inputManager.mouseScreenX;
     const my = game.inputManager.mouseScreenY;
-    const mouseInfo = game.inputManager.getMouseGridPosition(6, 6);
+    // Use current player position for accurate grid calculation
+    const player = game.entityManager.getEntity('player');
+    const playerCol = player?.col ?? 6;
+    const playerRow = player?.row ?? 6;
+    const mouseInfo = game.inputManager.getMouseGridPosition(playerCol, playerRow);
     return `Mouse: Screen(${mx.toFixed(0)}, ${my.toFixed(0)}) Grid(${mouseInfo.col}, ${mouseInfo.row}) L${mouseInfo.layer}`;
   },
   x: 10, y: 84, color: '#ff0',
@@ -140,7 +144,12 @@ debugRenderer.addText('mouse', {
 
 debugRenderer.addTileHighlight('mouse', {
   getTile: () => {
-    return { col: game.inputManager.mouseGridCol, row: game.inputManager.mouseGridRow };
+    // Get current player position for accurate grid calculation
+    const player = game.entityManager.getEntity('player');
+    const playerCol = player?.col ?? 6;
+    const playerRow = player?.row ?? 6;
+    const mouseInfo = game.inputManager.getMouseGridPosition(playerCol, playerRow);
+    return { col: mouseInfo.col, row: mouseInfo.row };
   },
   color: '#ff0',
   lineWidth: 2,

@@ -361,11 +361,23 @@ export class Game {
     if (this.modules.effectSystem && this.modules.layerManager) {
       const layerCount = this.modules.layerManager.getLayerCount?.() ?? 5;
       for (let i = 0; i < layerCount; i++) {
-        const layerInfo = this.modules.layerManager.getLayerStats?.(i) ?? { parallax: 1, alpha: 1 };
+        const layerInfo = this.modules.layerManager.getLayerStats?.(i) ?? { parallaxFactor: 1, alpha: 1, zIndexOffset: 0 };
+        
+        // Apply Z-axis offset for this layer (same as renderDefault)
+        if (layerInfo.zIndexOffset !== 0) {
+          ctx.save();
+          ctx.translate(0, -layerInfo.zIndexOffset);
+        }
+        
         this.modules.effectSystem.render(ctx, i, {
-          parallaxFactor: layerInfo.parallax,
-          alpha: layerInfo.alpha
+          parallaxFactor: layerInfo.parallaxFactor ?? 1,
+          alpha: layerInfo.alpha ?? 1
         });
+        
+        // Restore context if we applied offset
+        if (layerInfo.zIndexOffset !== 0) {
+          ctx.restore();
+        }
       }
     }
 

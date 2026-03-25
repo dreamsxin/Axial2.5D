@@ -7,6 +7,7 @@
  * - EffectSystem
  * - UIManager (includes UIDataBinder)
  * - DebugPanel (includes DebugRenderer)
+ * - PlayerController (Phase 6)
  * 
  * Usage:
  * ```typescript
@@ -18,7 +19,8 @@
  *     occlusionSystem: { enabled: true },
  *     effectSystem: { enabled: true },
  *     uiManager: { enabled: true, autoUpdate: true },
- *     debugPanel: { enabled: true }
+ *     debugPanel: { enabled: true },
+ *     playerController: { enabled: true, entityId: 'player' }
  *   }
  * });
  * 
@@ -43,6 +45,7 @@ import { EffectSystem } from '../effects/EffectSystem';
 import { UIManager } from '../ui/UIManager';
 import { DebugPanel } from '../debug/DebugPanel';
 import { LayerManager } from './LayerManager';
+import { PlayerController } from '../controllers/PlayerController';
 
 export interface ModuleConfig {
   cameraController?: {
@@ -326,7 +329,6 @@ export class ModuleManager {
     }
 
     try {
-      const { PlayerController } = require('../controllers/PlayerController');
       this.modules.playerController = new PlayerController(cfg.entityId, {
         inputManager: this.game.inputManager,
         gridSystem: this.game.gridSystem,
