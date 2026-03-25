@@ -1,7 +1,9 @@
 /**
  * EntityManager - Manages all game entities (characters, buildings, items)
  * 
- * Phase 6: Integrated with LayerManager for automatic statistics tracking
+ * Phase 6: 
+ * - Integrated with LayerManager for automatic statistics tracking
+ * - Auto-splitting multi-tile entities for correct depth sorting
  */
 
 import { Projection } from '../core/Projection';
@@ -9,6 +11,7 @@ import { IsoCamera } from '../core/IsoCamera';
 import { GridSystem } from './GridSystem';
 import { Entity, RenderItem, GridCoord } from '../core/types';
 import { LayerManager } from '../core/LayerManager';
+import { MultiTileEntity, MultiTileRenderUnit } from './MultiTileEntity';
 
 export class EntityManager {
   private entities: Map<string, Entity> = new Map();
@@ -16,12 +19,28 @@ export class EntityManager {
   private projection: Projection;
   private camera: IsoCamera;
   private layerManager?: LayerManager;  // For statistics tracking (Phase 6)
+  private multiTileSplitter?: MultiTileEntity;  // For auto-splitting (Phase 6)
+  
+  // Cache for split render units
+  private renderUnitsCache: Map<string, MultiTileRenderUnit[]> = new Map();
 
-  constructor(gridSystem: GridSystem, projection: Projection, camera: IsoCamera, layerManager?: LayerManager) {
+  constructor(
+    gridSystem: GridSystem,
+    projection: Projection,
+    camera: IsoCamera,
+    layerManager?: LayerManager,
+    tileSize?: number
+  ) {
     this.gridSystem = gridSystem;
     this.projection = projection;
     this.camera = camera;
     this.layerManager = layerManager;
+    
+    // Initialize multi-tile entity splitter (Phase 6)
+    this.multiTileSplitter = new MultiTileEntity({
+      enabled: true,
+      tileSize: tileSize ?? 50
+    });
   }
 
   /**
@@ -43,9 +62,22 @@ export class EntityManager {
     this.entities.set(entity.id, entity);
     this.syncEntityPosition(entity);
     
-    // Update statistics (Phase 6)
-    if (this.layerManager) {
-      this.layerManager.updateEntityCount(entity.col, entity.row, 1);
+    // Auto-split multi-tile entity and cache render units (Phase 6)
+    if (this.multiTileSplitter) {
+      const units = this.multiTileSplitter.splitEntity(entity, this.gridSystem);
+      this.renderUnitsCache.set(entity.id, units);
+      
+      // Update statistics for each unit (Phase 6)
+      if (this.layerManager) {
+        for (const unit of units) {
+          this.layerManager.updateEntityCount(unit.col, unit.row, 1);
+        }
+      }
+    } else {
+      // Fallback for single-tile entities
+      if (this.layerManager) {
+        this.layerManager.updateEntityCount(entity.col, entity.row, 1);
+      }
     }
   }
 
@@ -57,12 +89,76 @@ export class EntityManager {
     if (entity) {
       // Update statistics (Phase 6)
       if (this.layerManager) {
-        this.layerManager.updateEntityCount(entity.col, entity.row, -1);
+        if (this.renderUnitsCache.has(id)) {
+          // Multi-tile entity - remove stats for each unit
+          for (const unit of this.renderUnitsCache.get(id)!) {
+            this.layerManager.updateEntityCount(unit.col, unit.row, -1);
+          }
+        } else {
+          // Single-tile entity
+          this.layerManager.updateEntityCount(entity.col, entity.row, -1);
+        }
       }
+      
+      // Clear cache
+      this.renderUnitsCache.delete(id);
       
       // Clear occupancy
       this.gridSystem.setEntity(entity.col, entity.row, null);
       this.entities.delete(id);
+    }
+  }
+
+  /**
+   * Get render units for an entity (auto-split if multi-tile)
+   */
+  public getRenderUnits(entityId: string): MultiTileRenderUnit[] | null {
+    return this.renderUnitsCache.get(entityId) || null;
+  }
+
+  /**
+   * Get all render units for all entities (for rendering)
+   */
+  public getAllRenderUnits(): MultiTileRenderUnit[] {
+    const allUnits: MultiTileRenderUnit[] = [];
+    
+    for (const [entityId, units] of this.renderUnitsCache.entries()) {
+      // Check if parent entity is visible
+      const entity = this.entities.get(entityId);
+      if (entity?.visible !== false) {
+        allUnits.push(...units);
+      }
+    }
+    
+    // Sort by depth for correct rendering order
+    allUnits.sort((a, b) => a.depth - b.depth);
+    
+    return allUnits;
+  }
+
+  /**
+   * Invalidate render units cache for an entity
+   * Call this when entity moves or changes
+   */
+  public invalidateRenderUnits(entityId: string): void {
+    const entity = this.entities.get(entityId);
+    if (entity && this.multiTileSplitter) {
+      const units = this.multiTileSplitter.splitEntity(entity, this.gridSystem);
+      this.renderUnitsCache.set(entityId, units);
+    }
+  }
+
+  /**
+   * Invalidate all render units cache
+   */
+  public invalidateAllRenderUnits(): void {
+    this.renderUnitsCache.clear();
+    
+    for (const entity of this.entities.values()) {
+      if (this.multiTileSplitter) {
+        const units = this.multiTileSplitter.splitEntity(entity, this.gridSystem);
+        this.renderUnitsCache.set(entity.id, units);
+      }
     }
   }
 
