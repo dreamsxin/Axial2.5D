@@ -254,7 +254,7 @@ uiManager.toggleButton('btnGrid', {
 
 uiManager.toggleButton('btnDebug', {
   getState: () => state.showDebug,
-  onToggle: (state) => { state.showDebug = state; },
+  onToggle: (newState) => { state.showDebug = newState; },
   getText: (state) => `🐛 Debug: ${state ? 'ON' : 'OFF'}`
 });
 
