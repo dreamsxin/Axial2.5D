@@ -139,7 +139,7 @@ export class OcclusionSystem {
             { dc: 0, dr: -1 },   // North
           ];
 
-          for (let step = 0; step <= occlusionSteps; step++) {
+          for (let step = 1; step <= occlusionSteps; step++) {
             for (const dir of directions) {
               const shadowCol = col + dir.dc * step;
               const shadowRow = row + dir.dr * step;

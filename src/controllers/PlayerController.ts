@@ -175,6 +175,9 @@ export class PlayerController {
     const success = this.entityManager.moveEntity(entity, col, row);
     
     if (success) {
+      // Keep InputManager in sync so click parallax is calculated from actual player position
+      this.inputManager.setPlayerPosition(col, row);
+      
       this.emitMove(col, row);
       
       // Update camera if configured
@@ -218,7 +221,11 @@ export class PlayerController {
    */
   private setupEventListeners(): void {
     if (this.config.allowClickToMove) {
-      this.eventBus.on('click', (data) => this.handleClick(data));
+      // Listen to 'tileClick' (not 'click'). The 'click' event carries worldX/worldY
+      // and is converted to grid coords by Game.setupDefaultInputHandlers, which then
+      // emits 'tileClick' with { col, row }. Using 'tileClick' avoids duplicating the
+      // screen→world→grid conversion and keeps the controller independent of projection.
+      this.eventBus.on('tileClick', (data) => this.handleTileClick(data));
     }
 
     if (this.config.allowKeyboardMove) {
@@ -235,15 +242,16 @@ export class PlayerController {
   }
 
   /**
-   * Handle click-to-move
+   * Handle click-to-move via tileClick event
+   * data: { col: number, row: number } - already-converted grid coordinates
    */
-  private handleClick(data: any): void {
+  private handleTileClick(data: any): void {
     if (!this.enabled || !this.config.allowClickToMove) return;
 
-    const { gridCol, gridRow } = data;
-    if (gridCol === undefined || gridRow === undefined) return;
+    const { col, row } = data;
+    if (col === undefined || row === undefined) return;
 
-    this.moveTo(gridCol, gridRow);
+    this.moveTo(col, row);
   }
 
   /**

@@ -44,6 +44,11 @@ export class InputManager {
 
   private keyState: Map<string, boolean> = new Map();
   
+  // Current player position (used for click parallax calculation)
+  // Call setPlayerPosition() every frame when the player moves to keep this accurate.
+  private playerCol: number = 0;
+  private playerRow: number = 0;
+  
   // Cached mouse positions for easy access (Phase 6)
   private cachedMouseWorld: { x: number; y: number } | null = null;
   private cachedMouseGrid: { col: number; row: number } | null = null;
@@ -142,6 +147,20 @@ export class InputManager {
     if (config.layerCount !== undefined) this.layerCount = config.layerCount;
     if (config.maxDepth !== undefined) this.maxDepth = config.maxDepth;
     if (config.parallaxRange !== undefined) this.parallaxRange = config.parallaxRange;
+  }
+
+  /**
+   * Update the player's current grid position for parallax-accurate click conversion.
+   * Call this every frame after the player moves (or at least on each move event).
+   * Without this, onClick always uses (0,0) as the reference, causing coordinate
+   * drift when the player is far from the map origin.
+   */
+  public setPlayerPosition(col: number, row: number): void {
+    this.playerCol = col;
+    this.playerRow = row;
+    // Invalidate cached grid position so next getMouseGridPosition() recalculates
+    this.cachedMouseGrid = null;
+    this.cachedMouseWorld = null;
   }
 
   /**
@@ -292,7 +311,9 @@ export class InputManager {
     const rect = this.canvas.getBoundingClientRect();
     const screenX = e.clientX - rect.left;
     const screenY = e.clientY - rect.top;
-    const playerParallax = this.getPlayerLayerParallax(0, 0); // Default player position
+    // Use actual player position (updated via setPlayerPosition) for parallax calculation.
+    // Using (0,0) when the player is far from the origin causes click-coordinate drift.
+    const playerParallax = this.getPlayerLayerParallax(this.playerCol, this.playerRow);
     const world = this.screenToWorld(screenX, screenY, playerParallax);
     const grid = this.worldToGrid(world.x, world.y);
     

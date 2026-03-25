@@ -253,10 +253,13 @@ export class Game {
     });
 
     // Click to get grid position
+    // NOTE: InputManager emits 'click' with { worldX, worldY } (canvas Y-axis),
+    // NOT worldZ. GridSystem.worldToGrid(x, z) treats the second arg as the
+    // iso "depth" axis which maps to screen Y, so we pass worldY as z.
     this.eventBus.on('click', (data) => {
-      if (data.worldX === undefined || data.worldZ === undefined) return;
+      if (data.worldX === undefined || data.worldY === undefined) return;
       
-      const gridPos = this.gridSystem!.worldToGrid(data.worldX, data.worldZ);
+      const gridPos = this.gridSystem!.worldToGrid(data.worldX, data.worldY);
       this.eventBus.emit('tileClick', { col: gridPos.col, row: gridPos.row });
     });
   }

@@ -34,29 +34,29 @@
 <div id="container">
   <div id="canvas-container"><canvas id="gameCanvas" width="800" height="600"></canvas></div>
   <div id="sidebar">
-    <h1>🎮 Axial2.5D Phase 5</h1>
-    <h2>📊 Status</h2>
+    <h1>? Axial2.5D Phase 5</h1>
+    <h2>? Status</h2>
     <div class="stat">FPS: <span id="fps">0</span></div>
     <div class="stat">Player: <span id="playerPos">0, 0</span></div>
     <div class="stat">Occlusion: <span id="occlusion">VISIBLE</span></div>
-    <h2>🎯 Controls</h2>
+    <h2>? Controls</h2>
     <div class="stat"><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span> Move</div>
     <div class="stat"><span class="key">Click</span> Move to tile</div>
     <div class="stat"><span class="key">Drag</span> Pan camera</div>
     <div class="stat"><span class="key">Wheel</span> Zoom</div>
-    <h2>⚙️ Settings</h2>
-    <button id="btnGrid">📐 Grid: ON</button>
-    <button id="btnDebug">🐛 Debug: OFF</button>
-    <button id="btnClouds">☁️ Regenerate Clouds</button>
+    <h2>?? Settings</h2>
+    <button id="btnGrid">? Grid: ON</button>
+    <button id="btnDebug">? Debug: OFF</button>
+    <button id="btnClouds">?? Regenerate Clouds</button>
     <label>前景透明度：<span id="fgAlphaVal">0.6</span></label>
     <input type="range" id="fgAlphaSlider" min="0.2" max="1.0" step="0.1" value="0.6">
     <label>Z 轴间距：<span id="zStepVal">30</span></label>
     <input type="range" id="zStepSlider" min="0" max="100" step="10" value="30">
-    <label>视差范围�?span id="parallaxRangeVal">0.7</span></label>
+    <label>视差范围：<span id="parallaxRangeVal">0.7</span></label>
     <input type="range" id="parallaxRangeSlider" min="0" max="1.0" step="0.1" value="0.7">
-    <h2>📊 Layers</h2>
+    <h2>? Layers</h2>
     <div id="layerList"></div>
-    <h2>📜 Log</h2>
+    <h2>? Log</h2>
     <div id="log"></div>
   </div>
 </div>
@@ -166,9 +166,11 @@ debugRenderer.addTileHighlight('mouse', {
 
 debugRenderer.addText('layers', {
   getText: () => {
+    // Read parallaxRange directly from config to avoid the reverse-calculation
+    // (getLayerStats(0).parallaxFactor returns baseParallax+0=0.3, not the range)
+    const parallaxRange = game.config.get('render.parallaxRange') ?? 0.7;
     const s = layerManager ? layerManager.getLayerStats(0) : null;
-    const parallaxRange = s ? (s.parallax - 0.3) / 0.7 : 0.7; // Calculate from parallax factor
-    return `Layers: ${CONFIG.layerCount} | Parallax: ${parallaxRange.toFixed(1)} | Z-Step: ${Math.round(s?.zIndexOffset ?? 30)}`;
+    return `Layers: ${CONFIG.layerCount} | Parallax: ${Number(parallaxRange).toFixed(1)} | Z-Step: ${Math.round(s?.zIndexOffset ?? 30)}`;
   },
   x: 10, y: 100, color: '#96ceb4',
   enabled: () => game.config.get('debug.enabled') ?? false
@@ -218,6 +220,7 @@ game.log?.success(`Added ${buildings.length + 1} entities`);
 
 // ==================== Setup Effects (Phase 5 Builder API) ====================
 function regenerateClouds() {
+  if (!effectSystem) { game.log?.warn('effectSystem module not ready'); return; }
   effectSystem.clear();
   
   // Layer 4: White clouds (6 clouds)
@@ -264,7 +267,7 @@ uiManager.bindText('playerPos', () => {
 
 uiManager.bind('occlusion', (el) => {
   const player = game.entityManager.getEntity('player');
-  if (!player) return;
+  if (!player || !occlusionSystem) return;
   const occlusions = occlusionSystem.getOccludingBuildings(player);
   const isOccluded = occlusions.some(o => o.height > player.height);
   el.textContent = isOccluded ? `OCCLUDED by ${occlusions.map(o => o.buildingId).join(', ')}` : 'VISIBLE (normal)';

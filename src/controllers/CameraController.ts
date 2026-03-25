@@ -112,6 +112,13 @@ export class CameraController {
 
     // Get world position
     const worldPos = this.gridSystem.gridToWorld(entity.col, entity.row);
+    // NOTE on naming: GridSystem.gridToWorld returns { x, z } where
+    //   x  = col * tileW  (east axis)
+    //   z  = row * tileH  (south/depth axis, the isometric "Y" ground-plane axis)
+    // IsoCamera.follow(worldX, worldY, worldZ) uses:
+    //   worldY = depth axis (ground plane, same as gridToWorld.z)
+    //   worldZ = height axis (vertical, 0 = ground level)
+    // So we pass worldPos.z as worldY, and 0 as worldZ (entity is on the ground plane).
     
     // Update camera follow - use smoothness 0 for first frame to snap to position
     const smoothness = this.camera.isFollowing() ? (this.followConfig.smoothness ?? 0) : 0;
@@ -157,9 +164,9 @@ export class CameraController {
     if (!entity) return;
 
     const worldPos = this.gridSystem.gridToWorld(entity.col, entity.row);
-    const parallaxFactor = this.calculateParallaxForEntity(entity);
-    
-    this.camera.setPosition(worldPos.x, 0, this.projection);
+    // worldPos.z is the row-depth coordinate (IsoCamera.setPosition takes worldX, worldZ)
+    // Passing 0 instead of worldPos.z would always center on row=0, ignoring the entity's row
+    this.camera.setPosition(worldPos.x, worldPos.z, this.projection);
   }
 
   /**

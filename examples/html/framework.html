@@ -141,13 +141,14 @@ setupMapTiles();
 setupEntities();
 setupEffects();
 
-// Initialize input manager
+// Configure input manager layer settings (game.init() already calls inputManager.init() internally)
 game.inputManager.setLayerConfig({
   layerCount: CONFIG.layerCount,
   maxDepth: 2000,
   parallaxRange: 0.7
 });
-game.inputManager.init();
+// NOTE: Do NOT call game.inputManager.init() here - it is called inside game.init() already.
+// Calling it twice would register duplicate event listeners (click, keyboard, etc.).
 
 // Initialize camera controller (NEW - Phase 1)
 const cameraController = new CameraController({
@@ -199,18 +200,29 @@ canvas.addEventListener('mousemove', e => {
 // Setup event handlers
 setupEventHandlers();
 
+// Layer list DOM cache - must be declared BEFORE renderHooks (onBeforePresent calls updateLayerList)
+// Declaring them after renderHooks would put them in the TDZ when the hook first fires.
+const layerDomCache = {};
+let layerDomBuilt = false;
+
 // Setup render hooks (NEW - Phase 1, 2 & 3)
 game.renderHooks = {
-  onAfterClear: (ctx) => {
-    // Update camera follow
+  // onBeforeClear runs at the very start of each render frame, immediately after
+  // Game.update() has run — this is the correct place to update non-module systems
+  // (cameraController, occlusionSystem, effectSystem) when they are instantiated
+  // manually (not via game.modules).
+  onBeforeClear: (ctx) => {
+    // Update camera follow (must run every frame before rendering)
     cameraController.update();
     
-    // Update occlusion system
+    // Update occlusion map (must run after entities move, before drawing)
     occlusionSystem.update();
     
-    // Update effects
-    effectSystem.update(16);
-    
+    // Update effects using actual elapsed frame time (not hardcoded 16ms)
+    effectSystem.update(game.stats.frameTime || 16);
+  },
+
+  onAfterClear: (ctx) => {
     // Update UI bindings
     uiBinder.updateAll();
   },
@@ -220,7 +232,7 @@ game.renderHooks = {
     for (let i = 0; i < CONFIG.layerCount; i++) {
       const layerInfo = layerManager.getLayerStats(i);
       effectSystem.render(ctx, i, {
-        parallaxFactor: layerInfo.parallax,
+        parallaxFactor: layerInfo.parallaxFactor,  // correct field name (not .parallax)
         alpha: layerInfo.alpha
       });
     }
@@ -269,7 +281,8 @@ const uiBinder = new UIDataBinder();
 const debugRenderer = new DebugRenderer();
 
 // Setup UI bindings (NEW - Phase 3)
-uiBinder.bindText('fps', () => state.fps);
+// NOTE: state.fps is never written anywhere - use game.stats.fps which is updated by the engine
+uiBinder.bindText('fps', () => game.stats.fps);
 uiBinder.bindText('layerCount', () => CONFIG.layerCount);
 uiBinder.bindText('playerPos', () => {
   const player = game.entityManager.getEntity('player');
@@ -294,7 +307,7 @@ uiBinder.bind('occlusionAlpha', (el) => {
 // Setup debug renderer (NEW - Phase 3)
 // FPS and stats
 debugRenderer.addText('fps', {
-  getText: () => `FPS: ${state.fps}`,
+  getText: () => `FPS: ${game.stats.fps}`,
   x: 10, y: 20, color: '#0f0',
   enabled: () => state.showDebug
 });
@@ -486,10 +499,12 @@ function setupEffects() {
 // ==================== Event Handlers ====================
 function setupEventHandlers() {
   // Click to move
-  game.eventBus.on('click', (data) => {
-    const tile = game.gridSystem.getTile(data.gridCol, data.gridRow);
+  // NOTE: use 'tileClick' (not 'click'). The 'click' event provides {worldX, worldY},
+  // while 'tileClick' provides the already-computed grid coordinates {col, row}.
+  game.eventBus.on('tileClick', (data) => {
+    const tile = game.gridSystem.getTile(data.col, data.row);
     if (tile && tile.walkable) {
-      movePlayer(data.gridCol, data.gridRow);
+      movePlayer(data.col, data.row);
     }
   });
 
@@ -515,6 +530,9 @@ function movePlayer(col, row) {
   if (player) {
     game.entityManager.moveEntity(player, col, row);
   }
+  
+  // Keep InputManager in sync with player position for parallax-accurate click conversion
+  game.inputManager.setPlayerPosition(col, row);
   
   log(`Moved to (${col}, ${row})`, 'info');
 }
@@ -623,25 +641,53 @@ function updateLayerList() {
   
   const LAYER_COLORS = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#ffeaa7'];
   
-  layerList.innerHTML = '';
+  // Build DOM structure once, then update text in-place on subsequent calls
+  if (!layerDomBuilt) {
+    layerList.innerHTML = '';
+    for (let i = CONFIG.layerCount - 1; i >= 0; i--) {
+      const div = document.createElement('div');
+      div.className = 'layer-item';
+      div.style.borderLeft = i === CONFIG.layerCount - 1 ? '3px solid #4a90d9' : '3px solid transparent';
+      
+      const left = document.createElement('div');
+      left.style.cssText = 'display:flex;align-items:center;';
+      const swatch = document.createElement('div');
+      swatch.className = 'layer-color';
+      swatch.style.background = LAYER_COLORS[i];
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = `Layer ${i}${i === CONFIG.layerCount - 1 ? ' (前景)' : i === 0 ? ' (背景)' : ''}`;
+      left.appendChild(swatch);
+      left.appendChild(nameSpan);
+      
+      const right = document.createElement('div');
+      right.style.textAlign = 'right';
+      const statsLine = document.createElement('div');
+      statsLine.dataset.key = `stats-${i}`;
+      const settingsLine = document.createElement('div');
+      settingsLine.style.cssText = 'font-size:0.75em;color:#888;';
+      settingsLine.dataset.key = `settings-${i}`;
+      right.appendChild(statsLine);
+      right.appendChild(settingsLine);
+      
+      div.appendChild(left);
+      div.appendChild(right);
+      layerList.appendChild(div);
+      layerDomCache[`stats-${i}`] = statsLine;
+      layerDomCache[`settings-${i}`] = settingsLine;
+      layerDomCache[`swatch-${i}`] = swatch;
+    }
+    layerDomBuilt = true;
+  }
+  
+  // Update text content in-place (no DOM node creation every frame)
   for (let i = CONFIG.layerCount - 1; i >= 0; i--) {
     const stats = layerManager.getLayerStats(i);
-    const div = document.createElement('div');
-    div.className = 'layer-item';
-    div.style.borderLeft = i === CONFIG.layerCount - 1 ? '3px solid #4a90d9' : '3px solid transparent';
-    div.innerHTML = `
-      <div style="display:flex;align-items:center;">
-        <div class="layer-color" style="background:${LAYER_COLORS[i]};opacity:${stats.alpha}"></div>
-        <span>Layer ${i} ${i === CONFIG.layerCount - 1 ? '(前景)' : i === 0 ? '(背景)' : ''}</span>
-      </div>
-      <div style="text-align:right;">
-        <div>${layerStats[i].tiles} tiles | ${layerStats[i].entities} entities${layerStats[i].clouds ? ` | ☁️ ${layerStats[i].clouds} clouds` : ''}</div>
-        <div style="font-size:0.75em;color:#888;">
-          ${(stats.parallax * 100).toFixed(0)}% parallax | ${(stats.alpha * 100).toFixed(0)}% alpha | Z+${stats.zIndexOffset}
-        </div>
-      </div>
-    `;
-    layerList.appendChild(div);
+    const ls = layerStats[i];
+    layerDomCache[`swatch-${i}`].style.opacity = stats.alpha;
+    layerDomCache[`stats-${i}`].textContent =
+      `${ls.tiles} tiles | ${ls.entities} entities${ls.clouds ? ` | ☁️ ${ls.clouds} clouds` : ''}`;
+    layerDomCache[`settings-${i}`].textContent =
+      `${(stats.parallaxFactor * 100).toFixed(0)}% parallax | ${(stats.alpha * 100).toFixed(0)}% alpha | Z+${stats.zIndexOffset}`;
   }
 }
 

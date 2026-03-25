@@ -28,6 +28,7 @@
 
 import { Entity } from '../core/types';
 import { GridSystem } from './GridSystem';
+import { Projection } from '../core/Projection';
 
 export interface MultiTileRenderUnit {
   /** Parent entity ID */
@@ -80,10 +81,10 @@ export class MultiTileEntity {
    * Split a multi-tile entity into render units
    * Each unit represents one tile of the building
    */
-  public splitEntity(entity: any, gridSystem: GridSystem): MultiTileRenderUnit[] {
+  public splitEntity(entity: any, gridSystem: GridSystem, projection?: Projection): MultiTileRenderUnit[] {
     if (!this.isMultiTile(entity)) {
       // Single tile entity - return as-is
-      const depth = this.calculateUnitDepth(entity.col, entity.row, entity, gridSystem);
+      const depth = this.calculateUnitDepth(entity.col, entity.row, entity, gridSystem, projection);
       return [{
         entityId: entity.id,
         col: entity.col,
@@ -114,7 +115,7 @@ export class MultiTileEntity {
         const offsetZ = tRow * this.tileSize;
 
         // Calculate depth for this specific unit
-        const depth = this.calculateUnitDepth(unitCol, unitRow, entity, gridSystem);
+        const depth = this.calculateUnitDepth(unitCol, unitRow, entity, gridSystem, projection);
 
         const entityWidth = entity.width || 50;
         const entityLength = entity.length || 50;
@@ -138,21 +139,27 @@ export class MultiTileEntity {
   }
 
   /**
-   * Calculate depth for a specific unit
-   * Uses the unit's grid position for accurate depth sorting
+   * Calculate depth for a specific unit.
+   * If projection is provided, uses actual screen Y + height (matches EntityManager.updateAll).
+   * Falls back to col + row + height/tileSize when projection is unavailable.
    */
   private calculateUnitDepth(
     col: number,
     row: number,
     entity: any,
-    gridSystem: GridSystem
+    gridSystem: GridSystem,
+    projection?: Projection
   ): number {
-    // Convert grid position to world position
     const worldPos = gridSystem.gridToWorld(col, row);
-    
-    // Fallback to simple depth calculation
-    // Actual depth calculation will be done during rendering
-    return col + row + (entity.height || 0) / 50;
+
+    if (projection) {
+      // Accurate: screenY of unit base + entity height  (same formula as EntityManager.updateAll)
+      const screenPos = projection.worldToScreen(worldPos.x, worldPos.z, 0);
+      return screenPos.sy + (entity.height || 0);
+    }
+
+    // Fallback when no projection available
+    return col + row + (entity.height || 0) / this.tileSize;
   }
 
   /**

@@ -64,7 +64,7 @@ export class EntityManager {
     
     // Auto-split multi-tile entity and cache render units (Phase 6)
     if (this.multiTileSplitter) {
-      const units = this.multiTileSplitter.splitEntity(entity, this.gridSystem);
+      const units = this.multiTileSplitter.splitEntity(entity, this.gridSystem, this.projection);
       this.renderUnitsCache.set(entity.id, units);
       
       // Update statistics for each unit (Phase 6)
@@ -87,24 +87,35 @@ export class EntityManager {
   public removeEntity(id: string): void {
     const entity = this.entities.get(id);
     if (entity) {
-      // Update statistics (Phase 6)
-      if (this.layerManager) {
-        if (this.renderUnitsCache.has(id)) {
-          // Multi-tile entity - remove stats for each unit
-          for (const unit of this.renderUnitsCache.get(id)!) {
+      const cachedUnits = this.renderUnitsCache.get(id);
+
+      if (cachedUnits) {
+        // Multi-tile entity: clear grid occupancy for EVERY occupied tile, not just the anchor
+        const clearedKeys = new Set<string>();
+        for (const unit of cachedUnits) {
+          const key = `${unit.col},${unit.row}`;
+          if (!clearedKeys.has(key)) {
+            this.gridSystem.setEntity(unit.col, unit.row, null);
+            clearedKeys.add(key);
+          }
+        }
+
+        // Update statistics (Phase 6)
+        if (this.layerManager) {
+          for (const unit of cachedUnits) {
             this.layerManager.updateEntityCount(unit.col, unit.row, -1);
           }
-        } else {
-          // Single-tile entity
+        }
+      } else {
+        // Single-tile entity (no cached units)
+        this.gridSystem.setEntity(entity.col, entity.row, null);
+        if (this.layerManager) {
           this.layerManager.updateEntityCount(entity.col, entity.row, -1);
         }
       }
-      
-      // Clear cache
+
+      // Clear cache and remove entity
       this.renderUnitsCache.delete(id);
-      
-      // Clear occupancy
-      this.gridSystem.setEntity(entity.col, entity.row, null);
       this.entities.delete(id);
     }
   }
@@ -143,7 +154,7 @@ export class EntityManager {
   public invalidateRenderUnits(entityId: string): void {
     const entity = this.entities.get(entityId);
     if (entity && this.multiTileSplitter) {
-      const units = this.multiTileSplitter.splitEntity(entity, this.gridSystem);
+      const units = this.multiTileSplitter.splitEntity(entity, this.gridSystem, this.projection);
       this.renderUnitsCache.set(entityId, units);
     }
   }
@@ -156,7 +167,7 @@ export class EntityManager {
     
     for (const entity of this.entities.values()) {
       if (this.multiTileSplitter) {
-        const units = this.multiTileSplitter.splitEntity(entity, this.gridSystem);
+        const units = this.multiTileSplitter.splitEntity(entity, this.gridSystem, this.projection);
         this.renderUnitsCache.set(entity.id, units);
       }
     }
@@ -245,6 +256,23 @@ export class EntityManager {
       const worldPos = this.gridSystem.gridToWorld(entity.col, entity.row);
       const baseScreenPos = this.projection.worldToScreen(worldPos.x, worldPos.z, 0);
       entity.depth = baseScreenPos.sy + entity.height;
+
+      // Sync renderUnitsCache depths to match the updated entity position.
+      // Without this, cached units keep stale depths when an entity moves.
+      const cachedUnits = this.renderUnitsCache.get(entity.id);
+      if (cachedUnits && this.multiTileSplitter) {
+        const freshUnits = this.multiTileSplitter.splitEntity(entity, this.gridSystem, this.projection);
+        // Update depth on each cached unit in-place (avoids full cache replacement when not needed)
+        for (let i = 0; i < cachedUnits.length && i < freshUnits.length; i++) {
+          cachedUnits[i].depth = freshUnits[i].depth;
+          cachedUnits[i].col   = freshUnits[i].col;
+          cachedUnits[i].row   = freshUnits[i].row;
+        }
+        // If unit count changed (shouldn't happen during normal movement), replace entirely
+        if (freshUnits.length !== cachedUnits.length) {
+          this.renderUnitsCache.set(entity.id, freshUnits);
+        }
+      }
     }
   }
 
@@ -396,8 +424,8 @@ export class EntityManager {
       }
     }
 
-    // Sort ALL entities by southeast corner depth (single unified sort)
-    const sortedEntities = entities.sort((a, b) => {
+    // Sort ALL entities by southeast corner depth (single unified sort, non-destructive)
+    const sortedEntities = [...entities].sort((a, b) => {
       const aIsBuilding = a.height >= 50;
       const bIsBuilding = b.height >= 50;
       
@@ -463,8 +491,8 @@ export class EntityManager {
       }
     }
 
-    // Sort ALL entities by southeast corner depth (single unified sort)
-    const sortedEntities = entities.sort((a, b) => {
+    // Sort ALL entities by southeast corner depth (single unified sort, non-destructive)
+    const sortedEntities = [...entities].sort((a, b) => {
       const aIsBuilding = a.height >= 50;
       const bIsBuilding = b.height >= 50;
       
@@ -617,7 +645,7 @@ export class EntityManager {
             { dc: 0, dr: -1 },   // North
           ];
 
-          for (let step = 0; step <= occlusionSteps; step++) {
+          for (let step = 1; step <= occlusionSteps; step++) {
             for (const dir of directions) {
               const shadowCol = col + dir.dc * step;
               const shadowRow = row + dir.dr * step;
