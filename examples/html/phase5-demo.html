@@ -52,7 +52,7 @@
     <input type="range" id="fgAlphaSlider" min="0.2" max="1.0" step="0.1" value="0.6">
     <label>Z 轴间距：<span id="zStepVal">30</span></label>
     <input type="range" id="zStepSlider" min="0" max="100" step="10" value="30">
-    <label>视差范围：<span id="parallaxRangeVal">0.7</span></label>
+    <label>视差范围�?span id="parallaxRangeVal">0.7</span></label>
     <input type="range" id="parallaxRangeSlider" min="0" max="1.0" step="0.1" value="0.7">
     <h2>📊 Layers</h2>
     <div id="layerList"></div>
@@ -110,13 +110,13 @@ const debugRenderer = new DebugRenderer();
 debugRenderer.addText('fps', {
   getText: () => `FPS: ${game.stats.fps}`,
   x: 10, y: 20, color: '#0f0',
-  enabled: () => state.showDebug
+  enabled: () => game.config.get('debug.enabled') ?? false
 });
 
 debugRenderer.addText('stats', {
   getText: () => `Entities: ${game.entityManager.getCount()} | Draw calls: ${game.renderer.getRenderItemCount()}`,
   x: 10, y: 36, color: '#fff',
-  enabled: () => state.showDebug
+  enabled: () => game.config.get('debug.enabled') ?? false
 });
 
 debugRenderer.addText('player', {
@@ -125,13 +125,13 @@ debugRenderer.addText('player', {
     return player ? `Player: (${player.col}, ${player.row})` : 'Player: (0, 0)';
   },
   x: 10, y: 52, color: '#4a90d9',
-  enabled: () => state.showDebug
+  enabled: () => game.config.get('debug.enabled') ?? false
 });
 
 debugRenderer.addText('camera', {
   getText: () => `Camera: (${game.renderer.camera.offsetX.toFixed(0)}, ${game.renderer.camera.offsetY.toFixed(0)}) zoom:${game.renderer.camera.scale.toFixed(2)}`,
   x: 10, y: 68, color: '#aaa',
-  enabled: () => state.showDebug
+  enabled: () => game.config.get('debug.enabled') ?? false
 });
 
 debugRenderer.addText('mouse', {
@@ -146,7 +146,7 @@ debugRenderer.addText('mouse', {
     return `Mouse: Screen(${mx.toFixed(0)}, ${my.toFixed(0)}) Grid(${mouseInfo.col}, ${mouseInfo.row}) L${mouseInfo.layer}`;
   },
   x: 10, y: 84, color: '#ff0',
-  enabled: () => state.showDebug
+  enabled: () => game.config.get('debug.enabled') ?? false
 });
 
 debugRenderer.addTileHighlight('mouse', {
@@ -161,7 +161,7 @@ debugRenderer.addTileHighlight('mouse', {
   color: '#ff0',
   lineWidth: 2,
   alpha: 0.4,
-  enabled: () => state.showDebug
+  enabled: () => game.config.get('debug.enabled') ?? false
 });
 
 debugRenderer.addText('layers', {
@@ -171,7 +171,7 @@ debugRenderer.addText('layers', {
     return `Layers: ${CONFIG.layerCount} | Parallax: ${parallaxRange.toFixed(1)} | Z-Step: ${Math.round(s?.zIndexOffset ?? 30)}`;
   },
   x: 10, y: 100, color: '#96ceb4',
-  enabled: () => state.showDebug
+  enabled: () => game.config.get('debug.enabled') ?? false
 });
 
 // Track mouse position is no longer needed! (Phase 6)
@@ -294,6 +294,17 @@ uiManager.bindSliderToConfig('fgAlphaSlider', 'render.foregroundAlpha', 'fgAlpha
 uiManager.bindSliderToConfig('zStepSlider', 'render.zIndexStep', 'zStepVal');
 uiManager.bindSliderToConfig('parallaxRangeSlider', 'render.parallaxRange', 'parallaxRangeVal');
 
+// Sync config changes to LayerManager (Phase 6)
+game.config.on('render.foregroundAlpha', (v) => {
+  layerManager.updateLayerProperties({ foregroundAlpha: v });
+});
+game.config.on('render.zIndexStep', (v) => {
+  layerManager.updateLayerProperties({ zIndexStep: v });
+});
+game.config.on('render.parallaxRange', (v) => {
+  layerManager.updateLayerProperties({ parallaxRange: v });
+});
+
 // ==================== Input Handling (Phase 6 - automatic via PlayerController) ====================
 // No manual event handling needed! PlayerController module handles:
 // - WASD/Arrow key movement
@@ -307,7 +318,7 @@ uiManager.bindSliderToConfig('parallaxRangeSlider', 'render.parallaxRange', 'par
 game.renderHooks = {
   onAfterLayers: (ctx) => {
     // Render debug items when enabled
-    if (state.showDebug) {
+    if (game.config.get('debug.enabled') ?? false) {
       debugRenderer.render(ctx, game.gridSystem, game.renderer.camera, game.projection);
     }
   },
