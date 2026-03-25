@@ -76,6 +76,12 @@ export interface ModuleConfig {
     zIndexStep?: number;
     parallaxRange?: number;
   };
+  playerController?: {
+    enabled: boolean;
+    entityId: string;
+    clickToMove?: boolean;
+    wasdKeys?: boolean;
+  };
 }
 
 export interface GameModules {
@@ -85,6 +91,7 @@ export interface GameModules {
   uiManager?: UIManager;
   debugPanel?: DebugPanel;
   layerManager?: LayerManager;
+  playerController?: any; // PlayerController type (circular dep)
 }
 
 export class ModuleManager {
@@ -115,6 +122,7 @@ export class ModuleManager {
     this.initEffectSystem();
     this.initUIManager();
     this.initDebugPanel();
+    this.initPlayerController(); // Phase 6
 
     this.initialized = true;
     this.game.log?.info('Modules initialized', Object.keys(this.modules));
@@ -303,6 +311,35 @@ export class ModuleManager {
       this.game.log?.success('Module: DebugPanel initialized');
     } catch (error) {
       this.game.log?.error('Failed to initialize DebugPanel', error);
+    }
+  }
+
+  /**
+   * Initialize PlayerController (Phase 6)
+   */
+  private initPlayerController(): void {
+    const cfg = this.config.playerController;
+    if (!cfg?.enabled) return;
+    if (!this.game.inputManager || !this.game.gridSystem || !this.game.entityManager) {
+      console.warn('PlayerController requires inputManager, gridSystem, and entityManager');
+      return;
+    }
+
+    try {
+      const { PlayerController } = require('../controllers/PlayerController');
+      this.modules.playerController = new PlayerController(cfg.entityId, {
+        inputManager: this.game.inputManager,
+        gridSystem: this.game.gridSystem,
+        entityManager: this.game.entityManager,
+        eventBus: this.game.eventBus,
+        allowClickToMove: cfg.clickToMove !== false,
+        allowKeyboardMove: cfg.wasdKeys !== false
+      });
+
+      this.modules.playerController.enable();
+      this.game.log?.success(`Module: PlayerController initialized (entity: ${cfg.entityId})`);
+    } catch (error) {
+      this.game.log?.error('Failed to initialize PlayerController', error);
     }
   }
 

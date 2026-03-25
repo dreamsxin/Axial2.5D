@@ -1,6 +1,8 @@
 /**
  * InputManager - Unified input handling for mouse, keyboard, and touch
  * Converts screen coordinates to world/grid coordinates with camera and parallax support
+ * 
+ * Phase 6: Provides direct mouseScreenX/mouseScreenY properties for easy access
  */
 
 import { IsoCamera } from '../core/IsoCamera';
@@ -42,7 +44,7 @@ export class InputManager {
 
   private keyState: Map<string, boolean> = new Map();
   
-  // Cached mouse positions for easy access
+  // Cached mouse positions for easy access (Phase 6)
   private cachedMouseWorld: { x: number; y: number } | null = null;
   private cachedMouseGrid: { col: number; row: number } | null = null;
   private playerColForCache: number = 0;
@@ -66,6 +68,59 @@ export class InputManager {
       isDown: false,
       isDragging: false
     };
+  }
+
+  // ==================== Phase 6: Direct Mouse Properties ====================
+  
+  /**
+   * Get current mouse screen X coordinate (Phase 6)
+   * Automatically updated, no manual tracking needed
+   */
+  public get mouseScreenX(): number {
+    return this.mouseState.screenX;
+  }
+
+  /**
+   * Get current mouse screen Y coordinate (Phase 6)
+   * Automatically updated, no manual tracking needed
+   */
+  public get mouseScreenY(): number {
+    return this.mouseState.screenY;
+  }
+
+  /**
+   * Get current mouse world X coordinate (Phase 6)
+   */
+  public get mouseWorldX(): number {
+    return this.mouseState.worldX;
+  }
+
+  /**
+   * Get current mouse world Y coordinate (Phase 6)
+   */
+  public get mouseWorldY(): number {
+    return this.mouseState.worldY;
+  }
+
+  /**
+   * Get current mouse grid column (Phase 6)
+   */
+  public get mouseGridCol(): number {
+    return this.mouseState.gridCol;
+  }
+
+  /**
+   * Get current mouse grid row (Phase 6)
+   */
+  public get mouseGridRow(): number {
+    return this.mouseState.gridRow;
+  }
+
+  /**
+   * Get current mouse layer (Phase 6)
+   */
+  public get mouseLayer(): number {
+    return this.mouseState.layer;
   }
 
   /**

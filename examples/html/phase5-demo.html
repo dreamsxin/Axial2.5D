@@ -71,8 +71,7 @@ const LAYER_COLORS = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#ffeaa7'];
 // ==================== Game State ====================
 const state = {
   showGrid: true,
-  showDebug: false,
-  mouse: { x: 0, y: 0 }
+  showDebug: false
 };
 
 // ==================== Game Setup (Phase 5 - Simplified) ====================
@@ -87,6 +86,7 @@ const game = new Game({
     occlusionSystem: { enabled: true },
     effectSystem: { enabled: true },
     uiManager: { enabled: true, autoUpdate: true, logElementId: 'log' },
+    playerController: { enabled: true, entityId: 'player', clickToMove: true, wasdKeys: true },
     debugPanel: { enabled: false }
   }
 });
@@ -129,9 +129,8 @@ debugRenderer.addText('camera', {
 
 debugRenderer.addText('mouse', {
   getText: () => {
-    const mx = state.mouse.x ?? 0;
-    const my = state.mouse.y ?? 0;
-    if (!game.inputManager) return `Mouse: Screen(${mx.toFixed(0)}, ${my.toFixed(0)})`;
+    const mx = game.inputManager.mouseScreenX;
+    const my = game.inputManager.mouseScreenY;
     const mouseInfo = game.inputManager.getMouseGridPosition(6, 6);
     return `Mouse: Screen(${mx.toFixed(0)}, ${my.toFixed(0)}) Grid(${mouseInfo.col}, ${mouseInfo.row}) L${mouseInfo.layer}`;
   },
@@ -141,9 +140,7 @@ debugRenderer.addText('mouse', {
 
 debugRenderer.addTileHighlight('mouse', {
   getTile: () => {
-    if (!game.inputManager) return { col: 0, row: 0 };
-    const mouseInfo = game.inputManager.getMouseGridPosition(6, 6);
-    return { col: mouseInfo.col, row: mouseInfo.row };
+    return { col: game.inputManager.mouseGridCol, row: game.inputManager.mouseGridRow };
   },
   color: '#ff0',
   lineWidth: 2,
@@ -161,13 +158,8 @@ debugRenderer.addText('layers', {
   enabled: () => state.showDebug
 });
 
-// Track mouse position for debug display
-const canvas = document.getElementById('gameCanvas');
-canvas.addEventListener('mousemove', e => {
-  const rect = canvas.getBoundingClientRect();
-  state.mouse.x = e.clientX - rect.left;
-  state.mouse.y = e.clientY - rect.top;
-});
+// Track mouse position is no longer needed! (Phase 6)
+// game.inputManager.mouseScreenX/mouseScreenY are automatically updated
 
 // ==================== Setup Map ====================
 for (let c = 0; c < CONFIG.mapSize; c++) {
@@ -278,16 +270,14 @@ uiManager.bindSlider('parallaxRangeSlider', (v) => {
   game.setRenderOptions({ parallaxRange: v });
 }, 'parallaxRangeVal');
 
-// ==================== Input Handling ====================
-game.eventBus.on('click', (data) => {
-  const tile = game.gridSystem.getTile(data.gridCol, data.gridRow);
-  if (tile?.walkable) movePlayer(data.gridCol, data.gridRow);
-});
+// ==================== Input Handling (Phase 6 - automatic via PlayerController) ====================
+// No manual event handling needed! PlayerController module handles:
+// - WASD/Arrow key movement
+// - Click-to-move
+// - Path validation
+// - Camera follow
 
-function movePlayer(col, row) {
-  const player = game.entityManager.getEntity('player');
-  if (player) { game.entityManager.moveEntity(player, col, row); game.log?.info(`Moved to (${col}, ${row})`); }
-}
+// Legacy event handlers removed (handled by PlayerController module)
 
 // ==================== Render Hook ====================
 game.renderHooks = {
