@@ -12,7 +12,7 @@ export { Game } from './core/Game';
 export { Layer } from './core/Layer';
 export type { LayerConfig as LayerConfig2 } from './core/Layer';
 export { LayerManager } from './core/LayerManager';
-export type { LayerManagerConfig, LayerInfo } from './core/LayerManager';
+export type { LayerManagerConfig, LayerInfo, LayerStats } from './core/LayerManager';
 export * from './core/types';
 
 // World
@@ -69,6 +69,8 @@ export { UIDataBinder } from './ui/UIDataBinder';
 export type { BindingConfig, BindingUpdater, ValueProvider, ValueFormatter } from './ui/UIDataBinder';
 export { Logger } from './ui/Logger';
 export type { LogLevel, LoggerConfig } from './ui/Logger';
+export { LayerList } from './ui/LayerList';
+export type { LayerListConfig } from './ui/LayerList';
 
 // Debug (Phase 3)
 export { DebugRenderer } from './debug/DebugRenderer';

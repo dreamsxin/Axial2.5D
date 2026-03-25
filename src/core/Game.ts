@@ -156,7 +156,7 @@ export class Game {
     // Create grid system
     this.gridSystem = new GridSystem(mapData, this.projection);
 
-    // Create entity manager
+    // Create entity manager (layerManager will be set by ModuleManager if available)
     this.entityManager = new EntityManager(
       this.gridSystem,
       this.projection,
@@ -199,6 +199,12 @@ export class Game {
       // Setup logger if UIManager module is enabled
       if (this.modules.uiManager?.log) {
         this.log = this.modules.uiManager.log;
+      }
+      
+      // Connect layerManager to entityManager for statistics tracking (Phase 6)
+      if (this.modules.layerManager && this.entityManager) {
+        this.entityManager.setLayerManager(this.modules.layerManager);
+        this.modules.effectSystem?.setLayerManager(this.modules.layerManager);
       }
     }
 

@@ -62,7 +62,7 @@
 </div>
 
 <script type="module">
-import { Game, LayerManager, EffectSystem, CameraController, OcclusionSystem, UIDataBinder, DebugRenderer, gridToWorld, worldToGrid } from '../../src/index.ts';
+import { Game, LayerManager, EffectSystem, CameraController, OcclusionSystem, UIDataBinder, DebugRenderer, LayerList, gridToWorld, worldToGrid } from '../../src/index.ts';
 
 // ==================== Configuration ====================
 const CONFIG = { width: 800, height: 600, mapSize: 12, cellSize: 50, layerCount: 5 };
@@ -234,6 +234,12 @@ uiManager.bind('occlusion', (el) => {
   el.style.color = isOccluded ? '#4ecdc4' : '#4ad97a';
 });
 
+// LayerList component (Phase 6 - automatic)
+uiManager.addLayerList('layerList', {
+  layerColors: LAYER_COLORS,
+  showStats: ['tiles', 'entities', 'clouds']
+});
+
 // ==================== Button Bindings (Phase 5) ====================
 let showGrid = true, showDebug = false;
 
@@ -283,42 +289,6 @@ function movePlayer(col, row) {
   if (player) { game.entityManager.moveEntity(player, col, row); game.log?.info(`Moved to (${col}, ${row})`); }
 }
 
-// ==================== Layer List Update ====================
-function updateLayerList() {
-  const layerList = document.getElementById('layerList');
-  if (!layerList) return;
-  
-  const stats = {};
-  for (let i = 0; i < CONFIG.layerCount; i++) stats[i] = { tiles: 0, entities: 0, clouds: 0 };
-  
-  for (let c = 0; c < CONFIG.mapSize; c++)
-    for (let r = 0; r < CONFIG.mapSize; r++)
-      stats[layerManager.getLayerForDepth(c + r)].tiles++;
-  
-  for (const e of game.entityManager.getAllEntities())
-    stats[layerManager.getLayerForDepth(e.col + e.row)].entities++;
-  
-  for (const cloud of effectSystem.getAllEffects())
-    stats[cloud.layer].clouds++;
-  
-  layerList.innerHTML = '';
-  for (let i = CONFIG.layerCount - 1; i >= 0; i--) {
-    const s = layerManager.getLayerStats(i);
-    const div = document.createElement('div');
-    div.className = 'layer-item';
-    div.innerHTML = `
-      <div style="display:flex;align-items:center;">
-        <div class="layer-color" style="background:${LAYER_COLORS[i]};opacity:${s.alpha}"></div>
-        <span>L${i} ${i === 4 ? '(前景)' : i === 0 ? '(背景)' : ''}</span>
-      </div>
-      <div style="text-align:right;font-size:0.7em;color:#888;">
-        ${stats[i].tiles} tiles | ${stats[i].entities} ent${stats[i].clouds ? ` | ☁️ ${stats[i].clouds}` : ''}
-      </div>
-    `;
-    layerList.appendChild(div);
-  }
-}
-
 // ==================== Render Hook ====================
 game.renderHooks = {
   onAfterLayers: (ctx) => {
@@ -328,7 +298,7 @@ game.renderHooks = {
     }
   },
   onBeforePresent: () => { 
-    updateLayerList();
+    // LayerList auto-updates via UIManager.updateAll()
   }
 };
 

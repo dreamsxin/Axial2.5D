@@ -1,10 +1,14 @@
 /**
  * EffectSystem - Manages visual effects (clouds, particles, etc.)
  * Effects are entities with special rendering properties (parallax, transparency)
+ * 
+ * Phase 6: Integrated with LayerManager for automatic statistics tracking
  */
 
 import { IsoCamera } from '../core/IsoCamera';
 import { Projection } from '../core/Projection';
+import { LayerManager } from '../core/LayerManager';
+import { EventBus } from '../utils/EventBus';
 
 export interface EffectConfig {
   id: string;
@@ -29,11 +33,20 @@ export class EffectSystem {
   private camera: IsoCamera;
   private projection: Projection;
   private layerCount: number = 5;
+  private layerManager?: LayerManager;  // For statistics tracking (Phase 6)
 
-  constructor(camera: IsoCamera, projection: Projection, layerCount?: number) {
+  constructor(camera: IsoCamera, projection: Projection, layerCount?: number, layerManager?: LayerManager) {
     this.camera = camera;
     this.projection = projection;
     this.layerCount = layerCount ?? 5;
+    this.layerManager = layerManager;
+  }
+
+  /**
+   * Set layer manager for statistics tracking (Phase 6)
+   */
+  public setLayerManager(layerManager: LayerManager): void {
+    this.layerManager = layerManager;
   }
 
   /**
@@ -46,12 +59,21 @@ export class EffectSystem {
       visible: true
     };
     this.effects.set(config.id, effect);
+    
+    // Update statistics (Phase 6)
+    if (this.layerManager) {
+      this.layerManager.updateEffectCount(config.layer, 1);
+    }
   }
 
   /**
    * Remove an effect
    */
   public removeEffect(id: string): void {
+    const effect = this.effects.get(id);
+    if (effect && this.layerManager) {
+      this.layerManager.updateEffectCount(effect.layer, -1);
+    }
     this.effects.delete(id);
   }
 
@@ -226,6 +248,10 @@ export class EffectSystem {
    * Clear all effects
    */
   public clear(): void {
+    // Reset statistics (Phase 6)
+    if (this.layerManager) {
+      this.layerManager.updateEffectCount(0, -this.getCount());
+    }
     this.effects.clear();
   }
 

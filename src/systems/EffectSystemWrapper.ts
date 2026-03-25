@@ -114,7 +114,7 @@ export class EffectSystemWrapper {
     for (let i = 0; i < this.layerCount; i++) {
       const layerInfo = this.layerManager.getLayerStats(i);
       this.effectSystem.render(ctx, i, {
-        parallaxFactor: layerInfo.parallax,
+        parallaxFactor: layerInfo.parallaxFactor,
         alpha: layerInfo.alpha
       });
     }

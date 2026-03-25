@@ -1,22 +1,34 @@
 /**
  * EntityManager - Manages all game entities (characters, buildings, items)
+ * 
+ * Phase 6: Integrated with LayerManager for automatic statistics tracking
  */
 
 import { Projection } from '../core/Projection';
 import { IsoCamera } from '../core/IsoCamera';
 import { GridSystem } from './GridSystem';
 import { Entity, RenderItem, GridCoord } from '../core/types';
+import { LayerManager } from '../core/LayerManager';
 
 export class EntityManager {
   private entities: Map<string, Entity> = new Map();
   private gridSystem: GridSystem;
   private projection: Projection;
   private camera: IsoCamera;
+  private layerManager?: LayerManager;  // For statistics tracking (Phase 6)
 
-  constructor(gridSystem: GridSystem, projection: Projection, camera: IsoCamera) {
+  constructor(gridSystem: GridSystem, projection: Projection, camera: IsoCamera, layerManager?: LayerManager) {
     this.gridSystem = gridSystem;
     this.projection = projection;
     this.camera = camera;
+    this.layerManager = layerManager;
+  }
+
+  /**
+   * Set layer manager for statistics tracking (Phase 6)
+   */
+  public setLayerManager(layerManager: LayerManager): void {
+    this.layerManager = layerManager;
   }
 
   /**
@@ -30,6 +42,11 @@ export class EntityManager {
     
     this.entities.set(entity.id, entity);
     this.syncEntityPosition(entity);
+    
+    // Update statistics (Phase 6)
+    if (this.layerManager) {
+      this.layerManager.updateEntityCount(entity.col, entity.row, 1);
+    }
   }
 
   /**
@@ -38,6 +55,11 @@ export class EntityManager {
   public removeEntity(id: string): void {
     const entity = this.entities.get(id);
     if (entity) {
+      // Update statistics (Phase 6)
+      if (this.layerManager) {
+        this.layerManager.updateEntityCount(entity.col, entity.row, -1);
+      }
+      
       // Clear occupancy
       this.gridSystem.setEntity(entity.col, entity.row, null);
       this.entities.delete(id);

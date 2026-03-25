@@ -1,7 +1,13 @@
 /**
  * LayerManager - Manages layer configurations with parallax, alpha, and Z-offset
  * Each layer represents a visual depth plane with its own properties
+ * 
+ * Features (Phase 6):
+ * - Automatic statistics tracking (tiles, entities, effects per layer)
+ * - Event emission for statistics changes
  */
+
+import { EventBus } from '../utils/EventBus';
 
 export interface LayerConfig {
   index: number;
@@ -19,6 +25,7 @@ export interface LayerManagerConfig {
   foregroundAlpha?: number;   // Foreground layer alpha (default 0.6)
   backgroundAlpha?: number;   // Background layer alpha (default 1.0)
   zIndexStep?: number;        // Z offset step between layers (default 30)
+  eventBus?: EventBus;        // For emitting statistics events
 }
 
 export interface LayerInfo {
@@ -26,6 +33,12 @@ export interface LayerInfo {
   parallaxFactor: number;
   alpha: number;
   zIndexOffset: number;
+}
+
+export interface LayerStats extends LayerInfo {
+  tileCount: number;
+  entityCount: number;
+  effectCount: number;
 }
 
 export class LayerManager {
@@ -36,8 +49,14 @@ export class LayerManager {
   private foregroundAlpha: number;
   private backgroundAlpha: number;
   private zIndexStep: number;
+  private eventBus?: EventBus;
   
   private layers: Map<number, LayerConfig> = new Map();
+  
+  // Statistics tracking (Phase 6)
+  private tileCounts: number[] = [];
+  private entityCounts: number[] = [];
+  private effectCounts: number[] = [];
 
   constructor(config?: LayerManagerConfig) {
     this.layerCount = config?.layerCount ?? 5;
@@ -47,6 +66,12 @@ export class LayerManager {
     this.foregroundAlpha = config?.foregroundAlpha ?? 0.6;
     this.backgroundAlpha = config?.backgroundAlpha ?? 1.0;
     this.zIndexStep = config?.zIndexStep ?? 30;
+    this.eventBus = config?.eventBus;
+    
+    // Initialize statistics arrays
+    this.tileCounts = new Array(this.layerCount).fill(0);
+    this.entityCounts = new Array(this.layerCount).fill(0);
+    this.effectCounts = new Array(this.layerCount).fill(0);
     
     // Initialize default layers
     this.initializeLayers();
@@ -153,38 +178,87 @@ export class LayerManager {
   }
 
   /**
-   * Get statistics for a layer
+   * Get statistics for a layer (Phase 6 - includes tile/entity/effect counts)
    */
-  public getLayerStats(layerIndex: number): {
-    parallax: number;
-    alpha: number;
-    zIndexOffset: number;
-  } {
+  public getLayerStats(layerIndex: number): LayerStats {
     return {
-      parallax: this.calculateParallaxFactor(layerIndex),
+      index: layerIndex,
+      parallaxFactor: this.calculateParallaxFactor(layerIndex),
       alpha: this.calculateLayerAlpha(layerIndex),
-      zIndexOffset: this.calculateZIndexOffset(layerIndex)
+      zIndexOffset: this.calculateZIndexOffset(layerIndex),
+      tileCount: this.tileCounts[layerIndex] ?? 0,
+      entityCount: this.entityCounts[layerIndex] ?? 0,
+      effectCount: this.effectCounts[layerIndex] ?? 0
     };
   }
 
   /**
-   * Get statistics for all layers
+   * Get statistics for all layers (Phase 6 - includes counts)
    */
-  public getAllStats(): Array<{
-    index: number;
-    parallax: number;
-    alpha: number;
-    zIndexOffset: number;
-  }> {
-    const stats: Array<{index: number; parallax: number; alpha: number; zIndexOffset: number}> = [];
+  public getAllStats(): LayerStats[] {
+    const stats: LayerStats[] = [];
     for (let i = 0; i < this.layerCount; i++) {
-      stats.push({
-        index: i,
-        parallax: this.calculateParallaxFactor(i),
-        alpha: this.calculateLayerAlpha(i),
-        zIndexOffset: this.calculateZIndexOffset(i)
-      });
+      stats.push(this.getLayerStats(i));
     }
     return stats;
+  }
+
+  // ==================== Statistics Tracking (Phase 6) ====================
+
+  /**
+   * Update tile count for a layer
+   */
+  public updateTileCount(col: number, row: number, delta: number): void {
+    const layer = this.getLayerForDepth(col + row);
+    const oldCount = this.tileCounts[layer];
+    this.tileCounts[layer] = Math.max(0, (this.tileCounts[layer] ?? 0) + delta);
+    
+    if (oldCount !== this.tileCounts[layer]) {
+      this.emitStatsChange();
+    }
+  }
+
+  /**
+   * Update entity count for a layer
+   */
+  public updateEntityCount(col: number, row: number, delta: number): void {
+    const layer = this.getLayerForDepth(col + row);
+    const oldCount = this.entityCounts[layer];
+    this.entityCounts[layer] = Math.max(0, (this.entityCounts[layer] ?? 0) + delta);
+    
+    if (oldCount !== this.entityCounts[layer]) {
+      this.emitStatsChange();
+    }
+  }
+
+  /**
+   * Update effect count for a layer
+   */
+  public updateEffectCount(layer: number, delta: number): void {
+    const oldCount = this.effectCounts[layer];
+    this.effectCounts[layer] = Math.max(0, (this.effectCounts[layer] ?? 0) + delta);
+    
+    if (oldCount !== this.effectCounts[layer]) {
+      this.emitStatsChange();
+    }
+  }
+
+  /**
+   * Reset all statistics
+   */
+  public resetStats(): void {
+    this.tileCounts.fill(0);
+    this.entityCounts.fill(0);
+    this.effectCounts.fill(0);
+    this.emitStatsChange();
+  }
+
+  /**
+   * Emit statistics change event
+   */
+  private emitStatsChange(): void {
+    if (this.eventBus) {
+      this.eventBus.emit('layerStatsChanged');
+    }
   }
 }

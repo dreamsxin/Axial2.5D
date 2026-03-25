@@ -6,11 +6,13 @@
  * - Button binding with toggle support
  * - Slider binding with display update
  * - Logger attachment to DOM elements
+ * - LayerList component (Phase 6)
  */
 
 import { EventBus } from '../utils/EventBus';
 import { InputManager } from '../input/InputManager';
 import { Logger } from './Logger';
+import { LayerList, LayerListConfig } from './LayerList';
 
 export interface UIComponent {
   id: string;
@@ -224,6 +226,37 @@ export class UIManager {
     }
     
     // Button/slider bindings are event-driven
+  }
+
+  /**
+   * Add a LayerList component (Phase 6)
+   * Automatically updates layer statistics display
+   */
+  public addLayerList(containerId: string, config?: LayerListConfig): LayerList | null {
+    if (typeof document === 'undefined') {
+      console.warn('UIManager: LayerList requires DOM');
+      return null;
+    }
+
+    const container = document.getElementById(containerId);
+    if (!container) {
+      console.warn(`UIManager: Container "${containerId}" not found`);
+      return null;
+    }
+
+    // Create LayerList component
+    // Note: We need to pass layerManager, which should be available via game reference
+    // For now, we'll create it and let the caller manage the layerManager reference
+    const layerList = new LayerList(containerId, (this as any).game?.modules?.layerManager, config);
+    layerList.start();
+
+    // Store for cleanup
+    if (!(this as any)._layerLists) {
+      (this as any)._layerLists = [];
+    }
+    (this as any)._layerLists.push(layerList);
+
+    return layerList;
   }
 
   /**

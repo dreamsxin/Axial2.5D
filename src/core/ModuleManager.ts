@@ -132,7 +132,8 @@ export class ModuleManager {
         layerCount: cfg.layerCount ?? 5,
         foregroundAlpha: cfg.foregroundAlpha ?? 0.6,
         zIndexStep: cfg.zIndexStep ?? 30,
-        parallaxRange: cfg.parallaxRange ?? 0.7
+        parallaxRange: cfg.parallaxRange ?? 0.7,
+        eventBus: this.game.eventBus
       });
       this.game.log?.success('Module: LayerManager initialized');
     } catch (error) {
@@ -217,7 +218,8 @@ export class ModuleManager {
       this.modules.effectSystem = new EffectSystem(
         this.game.renderer.camera,
         this.game.projection,
-        this.modules.layerManager?.getLayerCount() ?? 5
+        this.modules.layerManager?.getLayerCount() ?? 5,
+        this.modules.layerManager  // Pass for statistics tracking (Phase 6)
       );
 
       this.game.log?.success('Module: EffectSystem initialized');
@@ -238,6 +240,9 @@ export class ModuleManager {
       if (this.game.inputManager) {
         this.modules.uiManager.setInputManager(this.game.inputManager);
       }
+      
+      // Store game reference for LayerList and other components
+      (this.modules.uiManager as any).game = this.game;
 
       // Attach logger to DOM if specified
       if (cfg.logElementId) {
