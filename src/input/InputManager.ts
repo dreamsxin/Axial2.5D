@@ -7,6 +7,7 @@
 
 import { IsoCamera } from '../core/IsoCamera';
 import { Projection } from '../core/Projection';
+import { LayerManager } from '../core/LayerManager';
 import { EventBus } from '../utils/EventBus';
 
 export interface InputManagerConfig {
@@ -15,6 +16,8 @@ export interface InputManagerConfig {
   projection: Projection;
   eventBus: EventBus;
   cellSize?: number;
+  /** Optional: inject a LayerManager so parallax factors stay in sync with the rest of the engine */
+  layerManager?: LayerManager;
 }
 
 export interface MouseState {
@@ -35,6 +38,8 @@ export class InputManager {
   private projection: Projection;
   private eventBus: EventBus;
   private cellSize: number;
+  /** Optional LayerManager for consistent parallaxFactor calculation across the engine */
+  private layerManager?: LayerManager;
   
   public mouseState: MouseState;
   private layerCount: number = 5;
@@ -61,6 +66,7 @@ export class InputManager {
     this.projection = config.projection;
     this.eventBus = config.eventBus;
     this.cellSize = config.cellSize ?? 50;
+    this.layerManager = config.layerManager;
     
     this.mouseState = {
       screenX: 0,
@@ -164,9 +170,20 @@ export class InputManager {
   }
 
   /**
-   * Calculate player layer parallax for coordinate conversion
+   * Calculate player layer parallax for coordinate conversion.
+   *
+   * If a LayerManager was injected at construction time we delegate to its
+   * canonical calculateParallaxFactor() so the value is always in sync with
+   * what the renderer uses.  Otherwise we fall back to the local formula
+   * (identical math, but kept here for environments without LayerManager).
    */
   private getPlayerLayerParallax(playerCol: number, playerRow: number): number {
+    if (this.layerManager) {
+      const playerDepth = playerCol + playerRow;
+      const playerLayer = this.layerManager.getLayerForDepth(playerDepth);
+      return this.layerManager.calculateParallaxFactor(playerLayer);
+    }
+    // Fallback: mirror the formula used in Game.renderDefault
     const playerDepth = playerCol + playerRow;
     const playerLayer = Math.floor((playerDepth / this.maxDepth) * this.layerCount);
     return 0.3 + (playerLayer / (this.layerCount - 1)) * this.parallaxRange;

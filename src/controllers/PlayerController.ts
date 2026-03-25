@@ -175,8 +175,12 @@ export class PlayerController {
     const success = this.entityManager.moveEntity(entity, col, row);
     
     if (success) {
-      // Keep InputManager in sync so click parallax is calculated from actual player position
+      // Keep InputManager in sync so click parallax is calculated from actual player position.
+      // Direct call is fastest; the eventBus 'playerMoved' below is for other listeners.
       this.inputManager.setPlayerPosition(col, row);
+      
+      // Broadcast movement so Game and other systems can react (e.g. auto-update camera parallax)
+      this.eventBus.emit('playerMoved', { col, row, entityId: this.entityId });
       
       this.emitMove(col, row);
       

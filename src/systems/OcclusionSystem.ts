@@ -55,6 +55,13 @@ export class OcclusionSystem {
   // Track which entities are currently occluded
   private occludedEntities: Map<string, OcclusionData[]> = new Map();
 
+  /**
+   * Dirty flag: when true the occlusion map will be recalculated on the next
+   * update() call.  Set to true whenever a building is added, removed or moved.
+   * Characters moving alone do NOT require a recalculation.
+   */
+  private dirty: boolean = true;
+
   constructor(config: OcclusionSystemConfig) {
     this.entityManager = config.entityManager;
     this.gridSystem = config.gridSystem;
@@ -87,7 +94,7 @@ export class OcclusionSystem {
 
     // For each building, calculate occlusion
     for (const entity of allEntities) {
-      if (entity.height >= 50) { // Only buildings cast shadows
+      if (entity.isBuilding()) { // Only buildings cast shadows
         const width = (entity as any).width || this.tileSize;
         const length = (entity as any).length || this.tileSize;
         this.calculateBuildingOcclusion(
@@ -210,7 +217,7 @@ export class OcclusionSystem {
    */
   public getOccludedEntities(): Entity[] {
     const allEntities = this.entityManager.getAllEntities();
-    return allEntities.filter(e => e.height < 50 && this.isOccluded(e));
+    return allEntities.filter(e => e.isCharacter() && this.isOccluded(e));
   }
 
   /**
@@ -237,7 +244,7 @@ export class OcclusionSystem {
     const allEntities = this.entityManager.getAllEntities();
     
     for (const entity of allEntities) {
-      if (entity.height >= 50) continue; // Only characters
+      if (entity.isBuilding()) continue; // Only characters
       
       const occlusions = this.getOccludingBuildings(entity);
       const wasOccluded = this.occludedEntities.has(entity.id);
@@ -259,10 +266,24 @@ export class OcclusionSystem {
   }
 
   /**
-   * Update occlusion system (call when entities move)
+   * Mark the occlusion map as stale so it is recalculated on the next update().
+   * Call this whenever a building entity is added, removed, or moved.
+   * There is no need to call it when only character entities move.
+   */
+  public markDirty(): void {
+    this.dirty = true;
+  }
+
+  /**
+   * Update occlusion system.
+   * Only recalculates when dirty (building layout changed) to avoid the
+   * O(entities × mapWidth × mapHeight) cost every frame.
    */
   public update(): void {
-    this.calculateOcclusionMap();
+    if (this.dirty) {
+      this.calculateOcclusionMap();
+      this.dirty = false;
+    }
   }
 
   /**

@@ -194,7 +194,8 @@ export class Game {
       camera: this.renderer.camera,
       projection: this.projection,
       eventBus: this.eventBus,
-      cellSize: mapData.tileW
+      cellSize: mapData.tileW,
+      // LayerManager will be set later once modules are initialised (see below)
     });
 
     // Initialize UI
@@ -231,6 +232,20 @@ export class Game {
         this.entityManager.setLayerManager(this.modules.layerManager);
         this.modules.effectSystem?.setLayerManager(this.modules.layerManager);
       }
+
+      // Inject layerManager into inputManager so parallaxFactor stays in sync
+      if (this.modules.layerManager && this.inputManager) {
+        (this.inputManager as any).layerManager = this.modules.layerManager;
+      }
+    }
+
+    // Auto-sync player position to InputManager on every 'tileClick' so
+    // business code no longer needs to call inputManager.setPlayerPosition() manually.
+    // This listens for PlayerController / Game level tileClick events.
+    if (this.inputManager) {
+      this.eventBus.on('playerMoved', (data: { col: number; row: number }) => {
+        this.inputManager?.setPlayerPosition(data.col, data.row);
+      });
     }
 
     this.log?.info('Game initialized', { mapSize: `${mapData.width}x${mapData.height}` });
@@ -242,9 +257,12 @@ export class Game {
   private setupDefaultInputHandlers(): void {
     if (!this.inputManager || !this.gridSystem || !this.entityManager) return;
 
-    // Camera pan on drag
+    // Camera pan on drag.
+    // Divide by camera.scale so drag speed stays proportional to the zoom level:
+    // at 2× zoom a 10 px drag should move 5 world-pixels, not 10.
     this.eventBus.on('dragMove', (data) => {
-      this.renderer.camera.pan(-data.deltaX, -data.deltaY);
+      const s = this.renderer.camera.scale;
+      this.renderer.camera.pan(-data.deltaX / s, -data.deltaY / s);
     });
 
     // Camera zoom on wheel

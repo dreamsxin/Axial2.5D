@@ -71,6 +71,20 @@ export interface GridCoord {
 // Entity Types
 // ============================================================================
 
+/**
+ * Semantic entity category.
+ *
+ * Use this instead of comparing `entity.height >= 50` to distinguish
+ * buildings from characters.  The threshold-based check breaks the moment
+ * someone creates a tall character or a short building; an explicit type
+ * field is unambiguous.
+ *
+ * - 'character' – player, NPCs, enemies; can move; does NOT cast occlusion shadow
+ * - 'building'  – static structures; casts occlusion shadow on tiles to the northwest
+ * - 'item'      – collectibles, decorations; no occlusion, no movement
+ */
+export type EntityType = 'character' | 'building' | 'item';
+
 export abstract class Entity implements RenderItem {
   public id: string;
   public col: number;
@@ -81,12 +95,34 @@ export abstract class Entity implements RenderItem {
   public depth: number = 0;
   public visible: boolean = true;
 
+  /**
+   * Semantic type of this entity.  Defaults to 'character' for backwards
+   * compatibility with existing code that never set an explicit type.
+   * Set to 'building' for static structures to enable occlusion shadow casting.
+   */
+  public entityType: EntityType = 'character';
+
   constructor(id: string, col: number, row: number, height: number = 0, spriteKey: string = '') {
     this.id = id;
     this.col = col;
     this.row = row;
     this.height = height;
     this.spriteKey = spriteKey;
+  }
+
+  /**
+   * Returns true if this entity is a building (casts occlusion shadows).
+   * Prefer this over `entity.height >= 50` checks throughout the codebase.
+   */
+  public isBuilding(): boolean {
+    return this.entityType === 'building';
+  }
+
+  /**
+   * Returns true if this entity is a character (player / NPC / enemy).
+   */
+  public isCharacter(): boolean {
+    return this.entityType === 'character';
   }
 
   abstract draw(ctx: CanvasRenderingContext2D): void;

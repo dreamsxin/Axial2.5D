@@ -181,15 +181,40 @@ export class EntityManager {
   }
 
   /**
-   * Get all entities at a grid position
+   * Get all entities at a grid position.
+   *
+   * For single-tile entities this is a simple anchor-point comparison.
+   * For multi-tile entities (buildings that span several tiles) we also
+   * check every render unit in the cache so that clicking on any part of
+   * a large building correctly returns its parent entity.
    */
   public getEntitiesAt(col: number, row: number): Entity[] {
     const result: Entity[] = [];
+    const seen = new Set<string>();
+
     for (const entity of this.entities.values()) {
+      if (seen.has(entity.id)) continue;
+
+      // Fast path: anchor tile matches
       if (entity.col === col && entity.row === row) {
         result.push(entity);
+        seen.add(entity.id);
+        continue;
+      }
+
+      // Slow path: check all render units (handles multi-tile buildings)
+      const units = this.renderUnitsCache.get(entity.id);
+      if (units) {
+        for (const unit of units) {
+          if (unit.col === col && unit.row === row) {
+            result.push(entity);
+            seen.add(entity.id);
+            break;
+          }
+        }
       }
     }
+
     return result;
   }
 
@@ -412,7 +437,7 @@ export class EntityManager {
     const semiTransparentBuildings = new Set<string>();
     
     for (const char of entities) {
-      if (char.height >= 50) continue; // Skip buildings
+      if (char.isBuilding()) continue; // Skip buildings
       
       if (occlusionSystem.isOccluded(char)) {
         const occlusions = occlusionSystem.getOccludingBuildings(char);
@@ -426,8 +451,8 @@ export class EntityManager {
 
     // Sort ALL entities by southeast corner depth (single unified sort, non-destructive)
     const sortedEntities = [...entities].sort((a, b) => {
-      const aIsBuilding = a.height >= 50;
-      const bIsBuilding = b.height >= 50;
+      const aIsBuilding = a.isBuilding();
+      const bIsBuilding = b.isBuilding();
       
       // Calculate southeast corner depth for both entities
       const aSED = aIsBuilding 
@@ -458,7 +483,7 @@ export class EntityManager {
 
     // Single pass: draw all entities in depth order
     for (const entity of sortedEntities) {
-      const isBuilding = entity.height >= 50;
+      const isBuilding = entity.isBuilding();
       const isSemiTransparent = isBuilding && semiTransparentBuildings.has(entity.id);
       const alpha = isSemiTransparent ? 0.5 : 1.0;
       
@@ -479,7 +504,7 @@ export class EntityManager {
     // Determine which buildings should be semi-transparent
     const semiTransparentBuildings = new Set<string>();
     for (const char of entities) {
-      if (char.height >= 50) continue;
+      if (char.isBuilding()) continue;
       
       const key = `${char.col},${char.row}`;
       const occlusions = this.occlusionMap.get(key) || [];
@@ -493,8 +518,8 @@ export class EntityManager {
 
     // Sort ALL entities by southeast corner depth (single unified sort, non-destructive)
     const sortedEntities = [...entities].sort((a, b) => {
-      const aIsBuilding = a.height >= 50;
-      const bIsBuilding = b.height >= 50;
+      const aIsBuilding = a.isBuilding();
+      const bIsBuilding = b.isBuilding();
       
       // Calculate southeast corner depth for both entities
       const aSED = aIsBuilding 
@@ -525,7 +550,7 @@ export class EntityManager {
 
     // Single pass: draw all entities in depth order
     for (const entity of sortedEntities) {
-      const isBuilding = entity.height >= 50;
+      const isBuilding = entity.isBuilding();
       const isSemiTransparent = isBuilding && semiTransparentBuildings.has(entity.id);
       const alpha = isSemiTransparent ? 0.5 : 1.0;
       
@@ -589,7 +614,7 @@ export class EntityManager {
 
     // For each building, calculate occlusion
     for (const entity of entities) {
-      if (entity.height >= 50) { // Only buildings cast shadows
+      if (entity.isBuilding()) { // Only buildings cast shadows
         const width = (entity as any).width || tileSize;
         const length = (entity as any).length || tileSize;
         this.calculateBuildingOcclusion(
