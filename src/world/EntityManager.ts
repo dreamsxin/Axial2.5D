@@ -503,14 +503,26 @@ export class EntityManager {
     // tileSize assumed 50 (matches multiTileSplitter default)
     const TILE = 50;
 
-    // Depth comparator used for Pass 1 (NW anchor for all)
-    const depthByNW = (a: Entity, b: Entity) => {
-      const aNW = a.col + a.row;
-      const bNW = b.col + b.row;
-      if (aNW !== bNW) return aNW - bNW;
+    // Depth comparator used for Pass 1 (SE corner for buildings, NW anchor for characters)
+    // Using SE corner for buildings ensures correct visual depth sorting for multi-tile structures
+    const depthBySE = (a: Entity, b: Entity) => {
+      const aIsBuilding = a.isBuilding();
+      const bIsBuilding = b.isBuilding();
+      
+      // Calculate SE corner depth for buildings, NW anchor for characters
+      const aDepth = aIsBuilding
+        ? (a.col + Math.ceil(((a as any).width || TILE) / TILE) - 1)
+          + (a.row + Math.ceil(((a as any).length || TILE) / TILE) - 1)
+        : a.col + a.row;
+      const bDepth = bIsBuilding
+        ? (b.col + Math.ceil(((b as any).width || TILE) / TILE) - 1)
+          + (b.row + Math.ceil(((b as any).length || TILE) / TILE) - 1)
+        : b.col + b.row;
+      
+      if (aDepth !== bDepth) return aDepth - bDepth;
+      
       // Tie: buildings before characters (character visually "stands on" the tile)
-      const aB = a.isBuilding(), bB = b.isBuilding();
-      if (aB !== bB) return aB ? -1 : 1;
+      if (aIsBuilding !== bIsBuilding) return aIsBuilding ? -1 : 1;
       if (a.row !== b.row) return b.row - a.row;
       return b.col - a.col;
     };
@@ -536,7 +548,7 @@ export class EntityManager {
       }
     }
 
-    pass1.sort(depthByNW);
+    pass1.sort(depthBySE);
     pass2.sort(depthBySE);
 
     // Pass 1: normal entities (opaque buildings + characters)
@@ -589,12 +601,27 @@ export class EntityManager {
       }
     }
 
-    // Pass 1: NW-anchor depth sort (opaque buildings + characters)
+    // Pass 1: SE-corner depth sort for buildings (opaque buildings + characters)
+    // Using SE corner for buildings ensures correct visual depth sorting for multi-tile structures
     pass1.sort((a, b) => {
-      const aNW = a.col + a.row, bNW = b.col + b.row;
-      if (aNW !== bNW) return aNW - bNW;
-      const aB = a.isBuilding(), bB = b.isBuilding();
-      if (aB !== bB) return aB ? -1 : 1;
+      const TILE = 50;
+      const aIsBuilding = a.isBuilding();
+      const bIsBuilding = b.isBuilding();
+      
+      // Calculate SE corner depth for buildings, NW anchor for characters
+      const aDepth = aIsBuilding
+        ? (a.col + Math.ceil(((a as any).width || TILE) / TILE) - 1)
+          + (a.row + Math.ceil(((a as any).length || TILE) / TILE) - 1)
+        : a.col + a.row;
+      const bDepth = bIsBuilding
+        ? (b.col + Math.ceil(((b as any).width || TILE) / TILE) - 1)
+          + (b.row + Math.ceil(((b as any).length || TILE) / TILE) - 1)
+        : b.col + b.row;
+      
+      if (aDepth !== bDepth) return aDepth - bDepth;
+      
+      // Tie: buildings before characters
+      if (aIsBuilding !== bIsBuilding) return aIsBuilding ? -1 : 1;
       if (a.row !== b.row) return b.row - a.row;
       return b.col - a.col;
     });
