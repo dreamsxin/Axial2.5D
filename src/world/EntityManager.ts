@@ -493,9 +493,9 @@ export class EntityManager {
     //
     // Solution – split into two passes:
     //   Pass 1: Draw all NON-semi-transparent buildings + all characters, sorted by
-    //           NW-anchor depth (back to front).  Semi-transparent buildings are
-    //           skipped here so they do not occlude characters that share the same
-    //           depth bucket.
+    //           SE-corner depth for buildings, NW-anchor for characters (back to front).
+    //           Semi-transparent buildings are skipped here so they do not occlude
+    //           characters that share the same depth bucket.
     //   Pass 2: Draw all semi-transparent buildings on top (sorted by SE-corner depth
     //           among themselves so they don't incorrectly overlap each other).
     //           Being drawn last guarantees they visually overlay the character.
@@ -503,9 +503,9 @@ export class EntityManager {
     // tileSize assumed 50 (matches multiTileSplitter default)
     const TILE = 50;
 
-    // Depth comparator used for Pass 1 (SE corner for buildings, NW anchor for characters)
+    // Depth comparator for Pass 1 (SE corner for buildings, NW anchor for characters)
     // Using SE corner for buildings ensures correct visual depth sorting for multi-tile structures
-    const depthBySE = (a: Entity, b: Entity) => {
+    const depthBySEPass1 = (a: Entity, b: Entity) => {
       const aIsBuilding = a.isBuilding();
       const bIsBuilding = b.isBuilding();
       
@@ -528,7 +528,7 @@ export class EntityManager {
     };
 
     // Depth comparator for semi-transparent buildings among themselves (SE corner)
-    const depthBySE = (a: Entity, b: Entity) => {
+    const depthBySEPass2 = (a: Entity, b: Entity) => {
       const aSE = (a.col + Math.ceil(((a as any).width || TILE) / TILE) - 1)
                 + (a.row + Math.ceil(((a as any).length || TILE) / TILE) - 1);
       const bSE = (b.col + Math.ceil(((b as any).width || TILE) / TILE) - 1)
@@ -548,8 +548,8 @@ export class EntityManager {
       }
     }
 
-    pass1.sort(depthBySE);
-    pass2.sort(depthBySE);
+    pass1.sort(depthBySEPass1);
+    pass2.sort(depthBySEPass2);
 
     // Pass 1: normal entities (opaque buildings + characters)
     for (const entity of pass1) {
