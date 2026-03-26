@@ -482,83 +482,62 @@ export class EntityManager {
       }
     }
 
-    // Two-pass rendering for correct occlusion visuals:
+    // ── Unified single-pass depth sort (Method B) ────────────────────────────
     //
-    // The occlusion effect requires a semi-transparent building to be drawn ON TOP
-    // of the character it occludes – regardless of which side (W, N, NW) the
-    // character is on relative to the building.  A single depth-sorted pass cannot
-    // achieve this for all directions (e.g. player at W of building has a smaller
-    // depth than the building's NW anchor, so a unified sort would draw the building
-    // first and the character on top, which is backwards for the occlusion visual).
+    // All entities are sorted by a single "SE-corner depth" key and drawn in
+    // one back-to-front pass.  Semi-transparent (occluding) buildings are NOT
+    // moved to a separate pass; they stay in their natural depth position.
     //
-    // Solution – split into two passes:
-    //   Pass 1: Draw all NON-semi-transparent buildings + all characters, sorted by
-    //           SE-corner depth for buildings, NW-anchor for characters (back to front).
-    //           Semi-transparent buildings are skipped here so they do not occlude
-    //           characters that share the same depth bucket.
-    //   Pass 2: Draw all semi-transparent buildings on top (sorted by SE-corner depth
-    //           among themselves so they don't incorrectly overlap each other).
-    //           Being drawn last guarantees they visually overlay the character.
+    // Why SE corner for every entity?
+    //   A building's SE corner is the visually deepest point of its footprint.
+    //   Sorting by it ensures that any building whose footprint extends further
+    //   SE than another object is drawn after (on top of) that object.
+    //
+    //   For a single-tile character: SE == NW == col+row, so the same formula
+    //   works uniformly.
+    //
+    // Why characters are drawn AFTER buildings at equal SE depth:
+    //   When a character stands exactly at the SE corner of a building tile the
+    //   two depths are equal.  The character should appear "in front of" the
+    //   building, so tie-breaking places buildings before characters.
+    //
+    // Key correctness checks:
+    //   townhall (3,3) 3×3  → SE depth 10
+    //   tower1   (5,5) 2×2  → SE depth 12
+    //   tower2   (7,7) 2×2  → SE depth 16
+    //   player(2,3)          → SE depth  5   → drawn before townhall ✓
+    //   player(3,6)          → SE depth  9   → drawn before townhall(10) ✓
+    //                                           townhall(semi-transparent) drawn after player ✓
+    //                                           tower1(12) drawn after townhall(10) ✓
+    //   player(4,7)          → SE depth 11   → drawn before tower1(12) ✓
+    //                                           townhall(10) drawn before player ✓ (not occluded)
     //
     // tileSize assumed 50 (matches multiTileSplitter default)
     const TILE = 50;
 
-    // Depth comparator for Pass 1 (SE corner for buildings, NW anchor for characters)
-    // Using SE corner for buildings ensures correct visual depth sorting for multi-tile structures
-    const depthBySEPass1 = (a: Entity, b: Entity) => {
-      const aIsBuilding = a.isBuilding();
-      const bIsBuilding = b.isBuilding();
-      
-      // Calculate SE corner depth for buildings, NW anchor for characters
-      const aDepth = aIsBuilding
-        ? (a.col + Math.ceil(((a as any).width || TILE) / TILE) - 1)
-          + (a.row + Math.ceil(((a as any).length || TILE) / TILE) - 1)
-        : a.col + a.row;
-      const bDepth = bIsBuilding
-        ? (b.col + Math.ceil(((b as any).width || TILE) / TILE) - 1)
-          + (b.row + Math.ceil(((b as any).length || TILE) / TILE) - 1)
-        : b.col + b.row;
-      
-      if (aDepth !== bDepth) return aDepth - bDepth;
-      
-      // Tie: buildings before characters (character visually "stands on" the tile)
-      if (aIsBuilding !== bIsBuilding) return aIsBuilding ? -1 : 1;
+    /** SE-corner depth for any entity (character: SE == col+row). */
+    const seDepth = (e: Entity): number => {
+      if (!e.isBuilding()) return e.col + e.row;
+      return (e.col + Math.ceil(((e as any).width  || TILE) / TILE) - 1)
+           + (e.row + Math.ceil(((e as any).length || TILE) / TILE) - 1);
+    };
+
+    const sorted = [...entities].sort((a, b) => {
+      const da = seDepth(a), db = seDepth(b);
+      if (da !== db) return da - db;
+      // Tie-break: buildings before characters (character is "in front")
+      const aB = a.isBuilding(), bB = b.isBuilding();
+      if (aB !== bB) return aB ? -1 : 1;
+      // Further tie-break: further SE drawn last
       if (a.row !== b.row) return b.row - a.row;
       return b.col - a.col;
-    };
+    });
 
-    // Depth comparator for semi-transparent buildings among themselves (SE corner)
-    const depthBySEPass2 = (a: Entity, b: Entity) => {
-      const aSE = (a.col + Math.ceil(((a as any).width || TILE) / TILE) - 1)
-                + (a.row + Math.ceil(((a as any).length || TILE) / TILE) - 1);
-      const bSE = (b.col + Math.ceil(((b as any).width || TILE) / TILE) - 1)
-                + (b.row + Math.ceil(((b as any).length || TILE) / TILE) - 1);
-      return aSE - bSE;
-    };
-
-    // Partition entities
-    const pass1: Entity[] = [];
-    const pass2: Entity[] = []; // semi-transparent occluding buildings
-
-    for (const entity of entities) {
-      if (entity.isBuilding() && semiTransparentBuildings.has(entity.id)) {
-        pass2.push(entity);
-      } else {
-        pass1.push(entity);
-      }
-    }
-
-    pass1.sort(depthBySEPass1);
-    pass2.sort(depthBySEPass2);
-
-    // Pass 1: normal entities (opaque buildings + characters)
-    for (const entity of pass1) {
-      this.drawEntity(ctx, entity, parallaxFactor, wireframe, 1.0);
-    }
-
-    // Pass 2: semi-transparent occluding buildings drawn last (on top of characters)
-    for (const entity of pass2) {
-      this.drawEntity(ctx, entity, parallaxFactor, wireframe, 0.5);
+    for (const entity of sorted) {
+      const alpha = entity.isBuilding() && semiTransparentBuildings.has(entity.id)
+        ? 0.5
+        : 1.0;
+      this.drawEntity(ctx, entity, parallaxFactor, wireframe, alpha);
     }
   }
 
@@ -587,59 +566,30 @@ export class EntityManager {
       }
     }
 
-    // Two-pass rendering – same strategy as renderWithOcclusionSystem (see comment there)
+    // Unified single-pass depth sort – same strategy as renderWithOcclusionSystem.
+    // See detailed comment in that method for rationale.
     const TILE = 50;
 
-    const pass1: Entity[] = [];
-    const pass2: Entity[] = [];
+    const seDepth = (e: Entity): number => {
+      if (!e.isBuilding()) return e.col + e.row;
+      return (e.col + Math.ceil(((e as any).width  || TILE) / TILE) - 1)
+           + (e.row + Math.ceil(((e as any).length || TILE) / TILE) - 1);
+    };
 
-    for (const entity of entities) {
-      if (entity.isBuilding() && semiTransparentBuildings.has(entity.id)) {
-        pass2.push(entity);
-      } else {
-        pass1.push(entity);
-      }
-    }
-
-    // Pass 1: SE-corner depth sort for buildings (opaque buildings + characters)
-    // Using SE corner for buildings ensures correct visual depth sorting for multi-tile structures
-    pass1.sort((a, b) => {
-      const TILE = 50;
-      const aIsBuilding = a.isBuilding();
-      const bIsBuilding = b.isBuilding();
-      
-      // Calculate SE corner depth for buildings, NW anchor for characters
-      const aDepth = aIsBuilding
-        ? (a.col + Math.ceil(((a as any).width || TILE) / TILE) - 1)
-          + (a.row + Math.ceil(((a as any).length || TILE) / TILE) - 1)
-        : a.col + a.row;
-      const bDepth = bIsBuilding
-        ? (b.col + Math.ceil(((b as any).width || TILE) / TILE) - 1)
-          + (b.row + Math.ceil(((b as any).length || TILE) / TILE) - 1)
-        : b.col + b.row;
-      
-      if (aDepth !== bDepth) return aDepth - bDepth;
-      
-      // Tie: buildings before characters
-      if (aIsBuilding !== bIsBuilding) return aIsBuilding ? -1 : 1;
+    const sorted = [...entities].sort((a, b) => {
+      const da = seDepth(a), db = seDepth(b);
+      if (da !== db) return da - db;
+      const aB = a.isBuilding(), bB = b.isBuilding();
+      if (aB !== bB) return aB ? -1 : 1;
       if (a.row !== b.row) return b.row - a.row;
       return b.col - a.col;
     });
 
-    // Pass 2: SE-corner sort for semi-transparent buildings (drawn last / on top)
-    pass2.sort((a, b) => {
-      const aSE = (a.col + Math.ceil(((a as any).width || TILE) / TILE) - 1)
-                + (a.row + Math.ceil(((a as any).length || TILE) / TILE) - 1);
-      const bSE = (b.col + Math.ceil(((b as any).width || TILE) / TILE) - 1)
-                + (b.row + Math.ceil(((b as any).length || TILE) / TILE) - 1);
-      return aSE - bSE;
-    });
-
-    for (const entity of pass1) {
-      this.drawEntity(ctx, entity, parallaxFactor, wireframe, 1.0);
-    }
-    for (const entity of pass2) {
-      this.drawEntity(ctx, entity, parallaxFactor, wireframe, 0.5);
+    for (const entity of sorted) {
+      const alpha = entity.isBuilding() && semiTransparentBuildings.has(entity.id)
+        ? 0.5
+        : 1.0;
+      this.drawEntity(ctx, entity, parallaxFactor, wireframe, alpha);
     }
   }
 
