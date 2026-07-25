@@ -44,6 +44,8 @@ const worldPos = gridSystem.gridToWorld(5, 5);
 - Manages entities (players, NPCs, buildings)
 - Entity lifecycle: `addEntity()`, `removeEntity()`, `moveEntity()`
 - Depth sorting for rendering
+- Multi-tile entities auto-split into per-tile render units (correct painter's order)
+- Buildings occluding a character render semi-transparent (via OcclusionSystem)
 
 ```typescript
 entityManager.addEntity({
@@ -80,6 +82,9 @@ renderer.camera.zoom(1.2);
 - Manages layer properties (parallax, alpha, Z-offset)
 - Automatic calculation based on configuration
 - Per-layer statistics
+- Depth→layer assignment uses `maxDepth` (default 2000 = whole map on one
+  coherent layer; set a smaller `renderOptions.maxDepth` to opt into
+  multi-layer parallax terracing)
 
 ```typescript
 const layerManager = new LayerManager({

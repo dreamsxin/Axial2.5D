@@ -137,9 +137,13 @@ When `game.occlusionSystem` is set, `EntityManager.render()`:
 
 1. Computes the set of buildings that occlude at least one character
    (across **all** layers, so a character on another layer still triggers it).
-2. Depth-sorts entities by SE-corner depth (`col+row` for characters,
-   SE-corner sum for buildings); ties put buildings before characters.
-3. Draws occluding buildings with `globalAlpha = 0.5`.
+2. Renders entities as **per-tile render units** (a 3×3 building = 9 units),
+   bucketed into layers by each unit's own tile depth and painter-sorted by
+   SE-corner depth (`col+row` for characters/units, SE-corner sum for
+   buildings); ties put buildings before characters.
+3. Draws occluding buildings with `globalAlpha *= 0.5` (composed with the
+   current layer alpha), so the hidden character stays visible through them.
+   Entities with a custom `draw()` render once via their anchor unit only.
 
 Without an `OcclusionSystem`, a legacy internal occlusion map is used; it is
 recomputed at most once per frame (on the layer-0 pass).
@@ -163,7 +167,7 @@ recomputed at most once per frame (on the layer-0 pass).
 |--------|---------|-------------|
 | `update()` | void | Rebuild if dirty; otherwise re-evaluate characters |
 | `markDirty()` | void | Force shadow-map rebuild on next `update()` |
-| `isOccluded(entity)` | boolean | True if any occluding building is taller than the entity |
+| `isOccluded(entity)` | boolean | True if any occluding building is at least as tall as the entity (`height >= entity.height`) |
 | `getOccludingBuildings(entity)` | `OcclusionData[]` | Foreground buildings shadowing the entity |
 | `getOcclusionFactor(entity)` | number | 1.0 visible … 0.3 maximally occluded |
 | `getOccludedEntities()` | `Entity[]` | All currently occluded characters |
