@@ -89,9 +89,13 @@ npm install
 npm run dev
 ```
 
-**访问：** 
-- Phase 5 示例：http://localhost:3001/examples/html/phase5-demo.html ⭐ **推荐**
-- Framework 示例：http://localhost:3001/examples/html/framework.html
+**访问：** http://localhost:3001/examples/index.html
+
+示例应用带左侧导航列表，可切换 4 个演示：
+- **Standalone** - 纯 Canvas 2D 实现，零框架代码
+- **Framework** - 手动集成框架各组件（Game + 控制器 + 渲染钩子）
+- **Phase 5 · Modules** ⭐ **推荐** - 模块系统自动装配
+- **Phase 6 · Multi-Tile** - 配置系统 + 多 tile 实体自动拆分
 
 **特点：**
 - 使用框架 API 编写
@@ -111,10 +115,9 @@ npm run server
 - 无需编译，直接运行
 - 适合快速体验所有功能
 
-### 方式 3：命令行演示 CLI Demo
+### 方式 3：单元测试 Tests
 
 ```bash
-npm run demo    # 基础演示
 npm run test    # 单元测试
 ```
 

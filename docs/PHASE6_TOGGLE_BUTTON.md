@@ -136,7 +136,7 @@ getText: (state) => `...${state ? 'ON' : 'OFF'}`  // 声明式文本
 ### 修改文件
 - `src/ui/UIManager.ts` - 添加 `toggleButton` 方法
 - `src/core/Game.ts` - 添加 `renderOptions` getter
-- `examples/html/phase5-demo.html` - 使用新 API
+- `examples/demos/phase5.ts` - 使用新 API
 
 ---
 

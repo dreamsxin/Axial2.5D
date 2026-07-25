@@ -1,0 +1,176 @@
+/* Axial2.5D Examples - shared styles (app shell + demo pages) */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: Arial, sans-serif;
+  background: #1a1a2e;
+  color: #fff;
+  overflow: hidden;
+}
+
+#app { display: flex; height: 100vh; }
+
+/* ==================== Navigation ==================== */
+
+#nav {
+  width: 250px;
+  min-width: 250px;
+  background: rgba(0, 0, 0, 0.45);
+  border-right: 1px solid #4a4a6a;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.nav-brand { padding: 18px 16px 14px; border-bottom: 1px solid #4a4a6a; }
+
+.nav-logo { font-size: 1.3em; font-weight: bold; color: #4a90d9; }
+
+.nav-sub { font-size: 0.7em; letter-spacing: 3px; color: #6a8caf; margin-top: 2px; }
+
+#nav-list { list-style: none; flex: 1; padding: 8px; }
+
+.nav-item {
+  padding: 10px 12px;
+  margin: 4px 0;
+  border-radius: 6px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.15s;
+}
+
+.nav-item:hover { background: rgba(255, 255, 255, 0.07); }
+
+.nav-item.active {
+  background: rgba(74, 144, 217, 0.18);
+  border-left-color: #4a90d9;
+}
+
+.nav-item-title { font-size: 0.9em; font-weight: bold; color: #ddd; }
+
+.nav-item.active .nav-item-title { color: #fff; }
+
+.nav-item-desc { font-size: 0.72em; color: #888; margin-top: 3px; line-height: 1.35; }
+
+.nav-footer {
+  padding: 12px 16px;
+  border-top: 1px solid #4a4a6a;
+  font-size: 0.72em;
+  color: #666;
+}
+
+.nav-footer code { color: #4a90d9; }
+
+/* ==================== Demo layout ==================== */
+
+#demo-root { flex: 1; overflow: hidden; }
+
+.demo { display: flex; height: 100%; }
+
+.demo-canvas-container {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+}
+
+.demo-canvas-container canvas {
+  border: 2px solid #4a4a6a;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.demo-sidebar {
+  width: 280px;
+  min-width: 280px;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 15px;
+  overflow-y: auto;
+  border-left: 1px solid #4a4a6a;
+}
+
+.demo-sidebar h1 { font-size: 1.4em; margin-bottom: 10px; color: #4a90d9; }
+
+.demo-sidebar h2 {
+  font-size: 1em;
+  margin: 15px 0 8px;
+  color: #6a8caf;
+  border-bottom: 1px solid #4a4a6a;
+  padding-bottom: 5px;
+}
+
+.stat { margin: 5px 0; font-size: 0.85em; color: #aaa; }
+
+.stat span { color: #fff; }
+
+.demo-sidebar button {
+  width: 100%;
+  padding: 8px;
+  margin: 4px 0;
+  background: #4a4a6a;
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  cursor: pointer;
+}
+
+.demo-sidebar button:hover { background: #5a5a7a; }
+
+.demo-sidebar button.active { background: #4a90d9; }
+
+.key {
+  display: inline-block;
+  background: #333;
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-size: 0.75em;
+  margin: 1px;
+}
+
+.demo-sidebar label {
+  font-size: 0.8em;
+  color: #888;
+  display: block;
+  margin-top: 8px;
+}
+
+.demo-sidebar input[type="range"] { width: 100%; margin: 4px 0; }
+
+.log {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid #4a4a6a;
+  border-radius: 4px;
+  padding: 8px;
+  height: 100px;
+  overflow-y: auto;
+  font-family: monospace;
+  font-size: 0.75em;
+}
+
+.log-msg { margin: 2px 0; color: #888; }
+
+.log-info { color: #4a90d9; }
+
+.log-success { color: #4ad97a; }
+
+.log-warn { color: #ffcc00; }
+
+.layer-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px;
+  margin: 2px 0;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  font-size: 0.8em;
+}
+
+.layer-color {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  margin-right: 8px;
+}

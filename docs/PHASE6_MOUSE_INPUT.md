@@ -292,7 +292,7 @@ debugRenderer.addText('mouse', {
 ### 修改文件
 - `src/input/InputManager.ts` - 添加鼠标坐标属性
 - `src/core/ModuleManager.ts` - PlayerController 自动初始化
-- `examples/html/phase5-demo.html` - 使用新 API
+- `examples/demos/phase5.ts` - 使用新 API
 
 ---
 

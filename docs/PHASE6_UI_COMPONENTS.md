@@ -195,7 +195,7 @@ uiManager.addLayerList('layerList', {
 - `src/index.ts` - 导出 LayerList 和 LayerStats
 - `src/systems/EffectSystemWrapper.ts` - 修复类型错误
 - `src/core/ModuleManager.ts` - 传递 eventBus 和 game 引用
-- `examples/html/phase5-demo.html` - 使用新 API
+- `examples/demos/phase5.ts` - 使用新 API
 
 ---
 

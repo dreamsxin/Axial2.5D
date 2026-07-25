@@ -16,7 +16,7 @@ export default defineConfig({
   },
   server: {
     port: 3001,
-    open: '/examples/html/framework.html',
+    open: '/examples/index.html',
   },
   optimizeDeps: {
     exclude: ['canvas'],

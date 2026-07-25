@@ -212,7 +212,7 @@ game.config.onAny((value, oldValue, key) => {
 - `src/core/ModuleManager.ts` - 使用配置系统
 - `src/ui/UIManager.ts` - 添加配置绑定方法
 - `src/index.ts` - 导出 ConfigManager
-- `examples/html/phase5-demo.html` - 使用新 API
+- `examples/demos/phase5.ts` - 使用新 API
 
 ---
 

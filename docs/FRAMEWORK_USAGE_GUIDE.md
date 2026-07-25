@@ -583,7 +583,7 @@ debugRenderer.toggle();
 
 ## 🎮 Complete Working Example
 
-See `examples/html/framework.html` for a complete, working example that demonstrates all framework components working together.
+See `examples/demos/framework.ts` for a complete, working example that demonstrates all framework components working together.
 
 ---
 

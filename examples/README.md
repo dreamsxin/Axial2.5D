@@ -1,69 +1,67 @@
 # Axial2.5D Examples
 
-示例分为两类：**HTML 示例**（直接在浏览器运行）和 **TypeScript 示例**（需要编译）。
+标准 TypeScript 示例应用：单页面 + 左侧导航列表，通过 hash 路由切换 4 个演示。
 
 ## 📁 目录结构
 
 ```
 examples/
-├── html/                    # HTML 示例（直接在浏览器打开）
-│   ├── standalone.html      # 独立演示 - 完整功能，无需编译
-│   └── framework.html       # 框架示例 - 使用框架 API
-├── ts/                      # TypeScript 示例（需要编译）
-│   └── demo.ts              # 基础演示
-└── README.md                # 本文件
+├── index.html            # 应用外壳（导航列表 + 演示容器）
+├── style.css             # 导航与各演示共享样式
+├── main.ts               # hash 路由器（#/standalone、#/framework …）
+├── demos/
+│   ├── types.ts          # Demo 接口契约
+│   ├── standalone.ts     # 纯 Canvas 2D 多图层演示（零框架代码）
+│   ├── framework.ts      # 手动集成框架组件（Game + 控制器 + 渲染钩子）
+│   ├── phase5.ts         # 模块系统自动装配（Phase 5）
+│   └── phase6.ts         # 配置系统 + 多 tile 实体自动拆分（Phase 6）
+└── README.md             # 本文件
 ```
 
-## 🌐 HTML 示例
+## 🚀 运行
 
-### standalone.html
-**特点：** 完整功能演示，无需编译，直接在浏览器打开
-- 5 层视差滚动
-- 动态云朵
-- 建筑渲染
-- 完整交互控制
-
-**运行方式：**
-```bash
-npm run server
-# 访问 http://localhost:3000
-```
-
-### framework.html
-**特点：** 使用框架 API 编写，展示正确的集成方式
-- 导入框架模块
-- 使用 LayerManager
-- 适合学习框架用法
-- Vite 热重载，开发体验好
-
-**运行方式：**
 ```bash
 npm run dev
-# 访问 http://localhost:3001/examples/html/framework.html
+# 浏览器自动打开 http://localhost:3001/examples/index.html
 ```
 
-## 💻 TypeScript 示例
+点击左侧导航切换演示，也可直接访问 hash 地址：
 
-### demo.ts
-基础演示，展示框架核心功能（Node.js 环境运行）。
+| 演示 | 地址 | 说明 |
+|------|------|------|
+| Standalone | `#/standalone` | 手写投影/视差/相机，展示框架自动化的基线 |
+| Framework | `#/framework` | 手动接线 LayerManager、CameraController、OcclusionSystem 等 |
+| Phase 5 · Modules | `#/phase5` | ModuleManager 自动装配 + UI 绑定 + 滑块配置 |
+| Phase 6 · Multi-Tile | `#/phase6` | 大体积建筑自动拆分为多个渲染单元 |
 
-**运行方式：**
-```bash
-npm run demo
+## 🧩 Demo 契约
+
+每个演示实现 `demos/types.ts` 中的 `Demo` 接口：
+
+```ts
+export interface Demo {
+  id: string;                                 // hash 路由 id
+  title: string;                              // 导航列表显示名
+  description: string;                        // 导航列表描述
+  mount(container: HTMLElement): () => void;  // 挂载，返回清理函数
+}
 ```
 
-## 🚀 快速开始
+- `mount` 在容器内构建 DOM、启动游戏循环；
+- 返回的清理函数在切换演示时调用（停止 RAF、销毁 InputManager、移除事件监听）；
+- 路由器会清空容器 DOM，因此各演示内的元素 `id` 互不冲突。
 
-| 目的 | 推荐示例 | 命令 |
-|------|----------|------|
-| **快速体验** | `standalone.html` | `npm run server` |
-| **学习框架** | `framework.html` | `npm run dev` |
-| **Node.js 集成** | `demo.ts` | `npm run demo` |
+### 添加新演示
 
-## 🎯 示例对比
+1. 在 `demos/` 新建 `my-demo.ts`，导出实现 `Demo` 接口的对象；
+2. 在 `main.ts` 中 import 并加入 `demos` 数组；
+3. 完成 — 导航项与路由自动生成。
 
-| 示例 | 编译 | 环境 | 用途 |
-|------|------|------|------|
-| standalone.html | ❌ | 浏览器 | 完整功能演示 |
-| framework.html | ✅ (Vite) | 浏览器 | 学习框架 API |
-| demo.ts | ✅ (tsc) | Node.js | 服务端/CLI 集成 |
+## 🆚 演示对比
+
+| 演示 | 框架 | 模块系统 | 多 tile 实体 | 用途 |
+|------|:----:|:--------:|:------------:|------|
+| standalone.ts | ❌ | ❌ | ❌ | 理解底层原理 |
+| framework.ts | ✅ | ❌ | ❌ | 学习手动集成 |
+| phase5.ts | ✅ | ✅ | ❌ | 学习模块系统 |
+| phase6.ts | ✅ | ✅ | ✅ | 学习配置系统与多 tile |

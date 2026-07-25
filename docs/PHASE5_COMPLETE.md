@@ -280,7 +280,7 @@ uiManager.bindButton('btnGrid', () => { ... }, { toggle: true });
 ## 📁 新增/修改的文件
 
 ### 新增文件
-- `examples/html/phase5-demo.html` - Phase 5 简化示例（~150 行）
+- `examples/demos/phase5.ts` - Phase 5 简化示例（~150 行）
 - `docs/PHASE5_COMPLETE.md` - 本文档
 
 ### 修改文件
@@ -414,7 +414,7 @@ cd Axial2.5D
 npm run dev
 
 # 访问 Phase 5 示例
-# http://localhost:3001/examples/html/phase5-demo.html
+# http://localhost:3001/examples/index.html#/phase5
 ```
 
 ---
