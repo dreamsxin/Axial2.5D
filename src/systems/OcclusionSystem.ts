@@ -198,7 +198,9 @@ export class OcclusionSystem {
    */
   public isOccluded(entity: Entity): boolean {
     const occlusions = this.getOccludingBuildings(entity);
-    return occlusions.some(occ => occ.height > entity.height);
+    // A building as tall as the entity still hides it completely (the
+    // entity's top is flush with the roof), so >= is the correct test.
+    return occlusions.some(occ => occ.height >= entity.height);
   }
 
   /**
@@ -291,7 +293,7 @@ export class OcclusionSystem {
       const occlusions = this.getOccludingBuildings(entity);
       const previous = this.occludedEntities.get(entity.id);
       const wasOccluded = previous !== undefined;
-      const isOccluded = occlusions.some(occ => occ.height > entity.height);
+      const isOccluded = occlusions.some(occ => occ.height >= entity.height);
       
       const sameOccluders = previous !== undefined
         && previous.length === occlusions.length

@@ -183,14 +183,14 @@ export class Game {
     // Create grid system
     this.gridSystem = new GridSystem(mapData, this.projection);
 
-    // Derive a sensible maxDepth default from the map size so parallax layers
-    // actually split (col+row ranges 0..width+height). The hard-coded 2000
-    // default collapses every realistically-sized map into layer 0, silently
-    // disabling parallax/alpha/zIndex layering. An explicit maxDepth passed
-    // via setRenderOptions() before init() always wins.
-    if (!this._maxDepthExplicit) {
-      this._renderOptions.maxDepth = mapData.width + mapData.height;
-    }
+    // maxDepth keeps the standalone default of 2000: every realistically-sized
+    // map collapses into layer 0, so the ground plane renders as ONE coherent
+    // plane (matching standalone).  Splitting the map into several parallax/
+    // alpha/zIndex bands tears the ground plane apart at band boundaries and
+    // looks broken, so multi-layer rendering is strictly opt-in via an
+    // explicit setRenderOptions({ maxDepth }) call (made before or after
+    // init()).  LayerManager statistics and CameraController auto-parallax
+    // read the same value, keeping render/stats/camera consistent.
 
     // Create entity manager (layerManager will be set by ModuleManager if available)
     this.entityManager = new EntityManager(
@@ -551,7 +551,7 @@ export class Game {
     parallaxRange?: number;
     maxDepth?: number;
   }): void {
-    // Explicit maxDepth always wins over the map-derived default applied in init()
+    // An explicit maxDepth enables multi-layer parallax rendering (opt-in)
     if (options.maxDepth !== undefined) this._maxDepthExplicit = true;
     this._renderOptions = { ...this._renderOptions, ...options };
   }

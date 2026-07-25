@@ -474,14 +474,21 @@ export class EntityManager {
   }
 
   /**
-   * Render entities with optional occlusion handling
-   * 
-   * Occlusion logic (when occlusionSystem is provided):
-   * - Characters in occluded tiles are drawn FIRST (opaque)
-   * - Buildings that occlude characters are drawn SEMI-TRANSPARENT on top
-   * - This ensures characters are visible through buildings
-   * 
-   * If occlusionSystem is NOT provided, uses legacy internal occlusion map
+   * Render entities with optional occlusion handling.
+   *
+   * Rendering is done per RENDER UNIT (multi-tile entities are auto-split by
+   * MultiTileEntity into one unit per occupied tile):
+   * - Each unit is drawn on the layer of ITS OWN tile depth, so every part of
+   *   a multi-tile building aligns with the ground tile beneath it and the
+   *   multi-layer rendering stays coherent for large buildings.
+   * - Units are drawn back-to-front by SE-corner depth; on ties buildings are
+   *   drawn before characters so a character at a building's SE corner
+   *   appears in front of it.
+   * - Buildings that occlude at least one character are drawn
+   *   SEMI-TRANSPARENT so the character stays visible.  The occluding set is
+   *   computed from ALL visible entities (cross-layer), not just the current
+   *   layer's.  Uses the provided OcclusionSystem, or the legacy internal
+   *   occlusion map when no system is given.
    */
   public render(
     ctx: CanvasRenderingContext2D,
@@ -505,25 +512,10 @@ export class EntityManager {
 
     // Get all entities
     const allEntities = this.getAllEntities().filter(e => e.visible !== false);
-    
-    // Filter by layer if specified
-    const layerEntities = allEntities.filter(e => {
-      if (layerIndex !== undefined) {
-        const depth = e.col + e.row;
-        const entityLayer = Math.floor((depth / maxDepth) * layerCount);
-        return entityLayer === layerIndex;
-      }
-      return true;
-    });
 
-    // Use provided OcclusionSystem or calculate internal occlusion map.
-    // NOTE: the semi-transparent building set is computed from ALL visible
-    // entities, not just the current layer's – otherwise a character on layer N
-    // occluded by a building on layer M would never turn that building
-    // transparent (cross-layer occlusion).
+    let semiTransparentBuildings: Set<string>;
     if (occlusionSystem) {
-      const semiTransparentBuildings = this.findSemiTransparentBuildings(allEntities, occlusionSystem);
-      this.renderWithOcclusionSystem(ctx, layerEntities, parallaxFactor, wireframe, occlusionSystem, semiTransparentBuildings);
+      semiTransparentBuildings = this.findSemiTransparentBuildings(allEntities, occlusionSystem);
     } else {
       // Legacy: calculate internal occlusion map once per frame (on the first
       // layer pass), not once per layer per frame.
@@ -532,8 +524,45 @@ export class EntityManager {
         const mapSize = this.gridSystem.getDimensions();
         this.calculateOcclusionMap(allEntities, tileSize, mapSize.width, mapSize.height);
       }
-      const semiTransparentBuildings = this.findSemiTransparentBuildingsInternal(allEntities);
-      this.renderWithInternalOcclusion(ctx, layerEntities, parallaxFactor, wireframe, semiTransparentBuildings);
+      semiTransparentBuildings = this.findSemiTransparentBuildingsInternal(allEntities);
+    }
+
+    // Collect render units for all visible entities (multi-tile entities are
+    // split into one unit per occupied tile by MultiTileEntity).
+    const allUnits = this.getAllRenderUnits();
+
+    // Bucket each unit by ITS OWN tile depth, so every part of a multi-tile
+    // building renders on the same layer as the ground tile beneath it.
+    const layerUnits = allUnits.filter(u => {
+      if (layerIndex === undefined) return true;
+      const unitLayer = Math.min(
+        layerCount - 1,
+        Math.floor(((u.col + u.row) / maxDepth) * layerCount)
+      );
+      return unitLayer === layerIndex;
+    });
+
+    // Draw back-to-front by SE-corner depth.  Each unit occupies a single
+    // tile, so col+row IS its SE-corner depth.  Tie-break: buildings before
+    // characters – a character at a building's SE corner is "in front".
+    layerUnits.sort((a, b) => {
+      const da = a.col + a.row;
+      const db = b.col + b.row;
+      if (da !== db) return da - db;
+      const aBuilding = this.entities.get(a.entityId)?.isBuilding() ?? false;
+      const bBuilding = this.entities.get(b.entityId)?.isBuilding() ?? false;
+      if (aBuilding !== bBuilding) return aBuilding ? -1 : 1;
+      if (a.row !== b.row) return b.row - a.row;
+      return b.col - a.col;
+    });
+
+    for (const unit of layerUnits) {
+      const entity = this.entities.get(unit.entityId);
+      if (!entity) continue;
+      const alpha = entity.isBuilding() && semiTransparentBuildings.has(unit.entityId)
+        ? 0.5
+        : 1.0;
+      this.drawRenderUnit(ctx, unit, entity, parallaxFactor, wireframe, alpha);
     }
 
     ctx.restore();
@@ -551,7 +580,8 @@ export class EntityManager {
       if (occlusionSystem.isOccluded(char)) {
         const occlusions = occlusionSystem.getOccludingBuildings(char);
         for (const occ of occlusions) {
-          if (occ.height > char.height) {
+          // >= : a building as tall as the character still hides it completely.
+          if (occ.height >= char.height) {
             semiTransparentBuildings.add(occ.buildingId);
           }
         }
@@ -573,7 +603,8 @@ export class EntityManager {
       const occlusions = this.occlusionMap.get(key) || [];
       
       for (const occ of occlusions) {
-        if (occ.height > char.height) {
+        // >= : a building as tall as the character still hides it completely.
+        if (occ.height >= char.height) {
           semiTransparentBuildings.add(occ.buildingId);
         }
       }
@@ -582,137 +613,126 @@ export class EntityManager {
   }
 
   /**
-   * Render using OcclusionSystem (Phase 2)
-   * Uses southeast corner depth for fine-grained sorting
+   * Draw a single render unit (one tile of an entity).
+   *
+   * Units of a multi-tile building are drawn as connected boxes sharing the
+   * parent's colors; the entity id label is only drawn on the anchor unit
+   * (offset 0,0).  Custom-draw entities (single-tile, e.g. BasicEntity) keep
+   * their own draw() behaviour.  `alpha` MULTIPLIES the current globalAlpha
+   * so the layer alpha and the occlusion alpha compose instead of the
+   * occlusion alpha clobbering the layer alpha.
    */
-  private renderWithOcclusionSystem(
+  private drawRenderUnit(
     ctx: CanvasRenderingContext2D,
-    entities: Entity[],
-    parallaxFactor: number,
-    wireframe: boolean,
-    occlusionSystem: any,
-    semiTransparentBuildings: Set<string>
-  ): void {
-    // ── Unified single-pass depth sort (Method B) ────────────────────────────
-    //
-    // All entities are sorted by a single "SE-corner depth" key and drawn in
-    // one back-to-front pass.  Semi-transparent (occluding) buildings are NOT
-    // moved to a separate pass; they stay in their natural depth position.
-    //
-    // Why SE corner for every entity?
-    //   A building's SE corner is the visually deepest point of its footprint.
-    //   Sorting by it ensures that any building whose footprint extends further
-    //   SE than another object is drawn after (on top of) that object.
-    //
-    //   For a single-tile character: SE == NW == col+row, so the same formula
-    //   works uniformly.
-    //
-    // Why characters are drawn AFTER buildings at equal SE depth:
-    //   When a character stands exactly at the SE corner of a building tile the
-    //   two depths are equal.  The character should appear "in front of" the
-    //   building, so tie-breaking places buildings before characters.
-    //
-    // Key correctness checks:
-    //   townhall (3,3) 3×3  → SE depth 10
-    //   tower1   (5,5) 2×2  → SE depth 12
-    //   tower2   (7,7) 2×2  → SE depth 16
-    //   player(2,3)          → SE depth  5   → drawn before townhall ✓
-    //   player(3,6)          → SE depth  9   → drawn before townhall(10) ✓
-    //                                           townhall(semi-transparent) drawn after player ✓
-    //                                           tower1(12) drawn after townhall(10) ✓
-    //   player(4,7)          → SE depth 11   → drawn before tower1(12) ✓
-    //                                           townhall(10) drawn before player ✓ (not occluded)
-    //
-    // tileSize assumed 50 (matches multiTileSplitter default)
-    const TILE = 50;
-
-    /** SE-corner depth for any entity (character: SE == col+row). */
-    const seDepth = (e: Entity): number => {
-      if (!e.isBuilding()) return e.col + e.row;
-      return (e.col + Math.ceil(((e as any).width  || TILE) / TILE) - 1)
-           + (e.row + Math.ceil(((e as any).length || TILE) / TILE) - 1);
-    };
-
-    const sorted = [...entities].sort((a, b) => {
-      const da = seDepth(a), db = seDepth(b);
-      if (da !== db) return da - db;
-      // Tie-break: buildings before characters (character is "in front")
-      const aB = a.isBuilding(), bB = b.isBuilding();
-      if (aB !== bB) return aB ? -1 : 1;
-      // Further tie-break: further SE drawn last
-      if (a.row !== b.row) return b.row - a.row;
-      return b.col - a.col;
-    });
-
-    for (const entity of sorted) {
-      const alpha = entity.isBuilding() && semiTransparentBuildings.has(entity.id)
-        ? 0.5
-        : 1.0;
-      this.drawEntity(ctx, entity, parallaxFactor, wireframe, alpha);
-    }
-  }
-
-  /**
-   * Render using internal occlusion map (legacy)
-   * Single-pass rendering with correct depth sorting by southeast corner
-   */
-  private renderWithInternalOcclusion(
-    ctx: CanvasRenderingContext2D,
-    entities: Entity[],
-    parallaxFactor: number,
-    wireframe: boolean,
-    semiTransparentBuildings: Set<string>
-  ): void {
-    // Unified single-pass depth sort – same strategy as renderWithOcclusionSystem.
-    // See detailed comment in that method for rationale.
-    const TILE = 50;
-
-    const seDepth = (e: Entity): number => {
-      if (!e.isBuilding()) return e.col + e.row;
-      return (e.col + Math.ceil(((e as any).width  || TILE) / TILE) - 1)
-           + (e.row + Math.ceil(((e as any).length || TILE) / TILE) - 1);
-    };
-
-    const sorted = [...entities].sort((a, b) => {
-      const da = seDepth(a), db = seDepth(b);
-      if (da !== db) return da - db;
-      const aB = a.isBuilding(), bB = b.isBuilding();
-      if (aB !== bB) return aB ? -1 : 1;
-      if (a.row !== b.row) return b.row - a.row;
-      return b.col - a.col;
-    });
-
-    for (const entity of sorted) {
-      const alpha = entity.isBuilding() && semiTransparentBuildings.has(entity.id)
-        ? 0.5
-        : 1.0;
-      this.drawEntity(ctx, entity, parallaxFactor, wireframe, alpha);
-    }
-  }
-
-  /**
-   * Helper to draw a single entity
-   */
-  private drawEntity(
-    ctx: CanvasRenderingContext2D,
+    unit: MultiTileRenderUnit,
     entity: Entity,
     parallaxFactor: number,
     wireframe: boolean,
     alpha: number
   ): void {
-    const worldPos = this.gridSystem.gridToWorld(entity.col, entity.row);
-    
     ctx.save();
     if (alpha < 1.0) {
-      ctx.globalAlpha = alpha;
+      ctx.globalAlpha *= alpha;
     }
-    
+
+    // Custom-draw entities keep their existing behaviour: draw() renders the
+    // whole entity, so only the anchor unit draws and all other units of the
+    // same entity are skipped (prevents double-rendering).
     if (entity.draw) {
-      entity.draw(ctx);
-    } else {
-      this.drawDefaultEntity(ctx, entity, worldPos, parallaxFactor, wireframe);
+      if (unit.offsetX === 0 && unit.offsetZ === 0) {
+        entity.draw(ctx);
+      }
+      ctx.restore();
+      return;
     }
-    
+
+    const worldPos = this.gridSystem.gridToWorld(unit.col, unit.row);
+    const baseX = worldPos.x;
+    const baseY = worldPos.z;
+    const w = unit.width;
+    const l = unit.length;
+    const h = unit.height;
+
+    // Calculate 8 corners of the unit box in screen space
+    const corners = {
+      lbb: this.camera.worldToScreen(baseX, baseY, 0, this.projection, parallaxFactor),
+      rbb: this.camera.worldToScreen(baseX + w, baseY, 0, this.projection, parallaxFactor),
+      rfb: this.camera.worldToScreen(baseX + w, baseY + l, 0, this.projection, parallaxFactor),
+      lfb: this.camera.worldToScreen(baseX, baseY + l, 0, this.projection, parallaxFactor),
+      lbt: this.camera.worldToScreen(baseX, baseY, h, this.projection, parallaxFactor),
+      rbt: this.camera.worldToScreen(baseX + w, baseY, h, this.projection, parallaxFactor),
+      rft: this.camera.worldToScreen(baseX + w, baseY + l, h, this.projection, parallaxFactor),
+      lft: this.camera.worldToScreen(baseX, baseY + l, h, this.projection, parallaxFactor)
+    };
+
+    // Use entity-specific colors if available, otherwise use default
+    const colors = unit.colors || ['#f5deb3', '#deb887', '#cd853f', '#b8860b', '#daa520', '#8b4513'];
+
+    if (!wireframe) {
+      // Draw 6 faces
+      const faces = [
+        [corners.lbb, corners.rbb, corners.rfb, corners.lfb, colors[5]], // bottom
+        [corners.lbb, corners.lfb, corners.lft, corners.lbt, colors[4]], // left
+        [corners.lbb, corners.rbb, corners.rbt, corners.lbt, colors[3]], // back-right
+        [corners.lfb, corners.rfb, corners.rft, corners.lft, colors[2]], // front
+        [corners.rbb, corners.rfb, corners.rft, corners.rbt, colors[1]], // right
+        [corners.lbt, corners.rbt, corners.rft, corners.lft, colors[0]]  // top
+      ];
+
+      for (const face of faces) {
+        const [p1, p2, p3, p4, color] = face as any;
+        ctx.beginPath();
+        ctx.moveTo((p1 as any).sx, (p1 as any).sy);
+        ctx.lineTo((p2 as any).sx, (p2 as any).sy);
+        ctx.lineTo((p3 as any).sx, (p3 as any).sy);
+        ctx.lineTo((p4 as any).sx, (p4 as any).sy);
+        ctx.closePath();
+        ctx.fillStyle = color as string;
+        ctx.fill();
+        ctx.strokeStyle = '#444';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    } else {
+      // Wireframe mode
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+
+      // Bottom edges
+      ctx.beginPath();
+      ctx.moveTo(corners.lbb.sx, corners.lbb.sy);
+      ctx.lineTo(corners.rbb.sx, corners.rbb.sy);
+      ctx.lineTo(corners.rfb.sx, corners.rfb.sy);
+      ctx.lineTo(corners.lfb.sx, corners.lfb.sy);
+      ctx.closePath();
+      ctx.stroke();
+
+      // Top edges
+      ctx.beginPath();
+      ctx.moveTo(corners.lbt.sx, corners.lbt.sy);
+      ctx.lineTo(corners.rbt.sx, corners.rbt.sy);
+      ctx.lineTo(corners.rft.sx, corners.rft.sy);
+      ctx.lineTo(corners.lft.sx, corners.lft.sy);
+      ctx.closePath();
+      ctx.stroke();
+
+      // Vertical edges
+      ctx.beginPath();
+      ctx.moveTo(corners.lbb.sx, corners.lbb.sy); ctx.lineTo(corners.lbt.sx, corners.lbt.sy);
+      ctx.moveTo(corners.rbb.sx, corners.rbb.sy); ctx.lineTo(corners.rbt.sx, corners.rbt.sy);
+      ctx.moveTo(corners.rfb.sx, corners.rfb.sy); ctx.lineTo(corners.rft.sx, corners.rft.sy);
+      ctx.moveTo(corners.lfb.sx, corners.lfb.sy); ctx.lineTo(corners.lft.sx, corners.lft.sy);
+      ctx.stroke();
+    }
+
+    // Draw entity ID above the anchor unit only
+    if (unit.offsetX === 0 && unit.offsetZ === 0) {
+      ctx.fillStyle = '#fff';
+      ctx.font = '12px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(entity.id, corners.lft.sx, corners.lft.sy - 15);
+    }
+
     ctx.restore();
   }
 
@@ -823,103 +843,6 @@ export class EntityManager {
         }
       }
     }
-  }
-
-
-
-  /**
-   * Draw default entity representation (3D box like standalone.html)
-   */
-  private drawDefaultEntity(
-    ctx: CanvasRenderingContext2D,
-    entity: Entity,
-    worldPos: { x: number; z: number },
-    parallaxFactor: number,
-    wireframe: boolean
-  ): void {
-    const w = (entity as any).width || 50;
-    const l = (entity as any).length || 50;
-    const h = entity.height || 50;
-    const baseX = worldPos.x;
-    const baseY = worldPos.z;
-
-    // Calculate 8 corners of the box in screen space
-    const corners = {
-      lbb: this.camera.worldToScreen(baseX, baseY, 0, this.projection, parallaxFactor),
-      rbb: this.camera.worldToScreen(baseX + w, baseY, 0, this.projection, parallaxFactor),
-      rfb: this.camera.worldToScreen(baseX + w, baseY + l, 0, this.projection, parallaxFactor),
-      lfb: this.camera.worldToScreen(baseX, baseY + l, 0, this.projection, parallaxFactor),
-      lbt: this.camera.worldToScreen(baseX, baseY, h, this.projection, parallaxFactor),
-      rbt: this.camera.worldToScreen(baseX + w, baseY, h, this.projection, parallaxFactor),
-      rft: this.camera.worldToScreen(baseX + w, baseY + l, h, this.projection, parallaxFactor),
-      lft: this.camera.worldToScreen(baseX, baseY + l, h, this.projection, parallaxFactor)
-    };
-
-    // Use entity-specific colors if available, otherwise use default
-    const colors = (entity as any).colors || ['#f5deb3', '#deb887', '#cd853f', '#b8860b', '#daa520', '#8b4513'];
-
-    if (!wireframe) {
-      // Draw 6 faces
-      const faces = [
-        [corners.lbb, corners.rbb, corners.rfb, corners.lfb, colors[5]], // bottom
-        [corners.lbb, corners.lfb, corners.lft, corners.lbt, colors[4]], // left
-        [corners.lbb, corners.rbb, corners.rbt, corners.lbt, colors[3]], // back-right
-        [corners.lfb, corners.rfb, corners.rft, corners.lft, colors[2]], // front
-        [corners.rbb, corners.rfb, corners.rft, corners.rbt, colors[1]], // right
-        [corners.lbt, corners.rbt, corners.rft, corners.lft, colors[0]]  // top
-      ];
-
-      for (const face of faces) {
-        const [p1, p2, p3, p4, color] = face as any;
-        ctx.beginPath();
-        ctx.moveTo((p1 as any).sx, (p1 as any).sy);
-        ctx.lineTo((p2 as any).sx, (p2 as any).sy);
-        ctx.lineTo((p3 as any).sx, (p3 as any).sy);
-        ctx.lineTo((p4 as any).sx, (p4 as any).sy);
-        ctx.closePath();
-        ctx.fillStyle = color as string;
-        ctx.fill();
-        ctx.strokeStyle = '#444';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      }
-    } else {
-      // Wireframe mode
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 2;
-      
-      // Bottom edges
-      ctx.beginPath();
-      ctx.moveTo(corners.lbb.sx, corners.lbb.sy);
-      ctx.lineTo(corners.rbb.sx, corners.rbb.sy);
-      ctx.lineTo(corners.rfb.sx, corners.rfb.sy);
-      ctx.lineTo(corners.lfb.sx, corners.lfb.sy);
-      ctx.closePath();
-      ctx.stroke();
-      
-      // Top edges
-      ctx.beginPath();
-      ctx.moveTo(corners.lbt.sx, corners.lbt.sy);
-      ctx.lineTo(corners.rbt.sx, corners.rbt.sy);
-      ctx.lineTo(corners.rft.sx, corners.rft.sy);
-      ctx.lineTo(corners.lft.sx, corners.lft.sy);
-      ctx.closePath();
-      ctx.stroke();
-      
-      // Vertical edges
-      ctx.beginPath();
-      ctx.moveTo(corners.lbb.sx, corners.lbb.sy); ctx.lineTo(corners.lbt.sx, corners.lbt.sy);
-      ctx.moveTo(corners.rbb.sx, corners.rbb.sy); ctx.lineTo(corners.rbt.sx, corners.rbt.sy);
-      ctx.moveTo(corners.rfb.sx, corners.rfb.sy); ctx.lineTo(corners.rft.sx, corners.rft.sy);
-      ctx.moveTo(corners.lfb.sx, corners.lfb.sy); ctx.lineTo(corners.lft.sx, corners.lft.sy);
-      ctx.stroke();
-    }
-
-    // Draw entity ID above the building
-    ctx.fillStyle = '#fff';
-    ctx.font = '12px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText(entity.id, corners.lft.sx, corners.lft.sy - 15);
   }
 }
 

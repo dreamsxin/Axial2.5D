@@ -59,6 +59,7 @@ export const standaloneDemo: Demo = {
           <div class="stat">FPS: <span id="fps">0</span></div>
           <div class="stat">Layers: <span id="layerCount">0</span></div>
           <div class="stat">Player: <span id="playerPos">0, 0</span></div>
+          <div class="stat">Occlusion: <span id="occlusion">VISIBLE</span></div>
           <h2>🎯 Controls</h2>
           <div class="stat"><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span> Move</div>
           <div class="stat"><span class="key">Click</span> Move to tile</div>
@@ -94,6 +95,7 @@ export const standaloneDemo: Demo = {
     const fpsEl = container.querySelector<HTMLElement>('#fps')!;
     const layerCountEl = container.querySelector<HTMLElement>('#layerCount')!;
     const playerPosEl = container.querySelector<HTMLElement>('#playerPos')!;
+    const occlusionEl = container.querySelector<HTMLElement>('#occlusion')!;
     const layerListEl = container.querySelector<HTMLElement>('#layerList')!;
 
     // ==================== State ====================
@@ -178,6 +180,58 @@ export const standaloneDemo: Demo = {
       // Layer 0 = base (Z=0, world reference plane)
       // Positive Z = above Layer 0 (foreground/closer to camera)
       return layerIndex * state.layerSettings.zIndexStep;
+    }
+
+    // ==================== Occlusion ====================
+    // Same rule as the framework's OcclusionSystem:
+    // - every tile of a building's footprint casts an occlusion shadow to the
+    //   NW (West / North / Northwest), one step per CELL_SIZE of height;
+    // - a building only occludes the player when its SE-corner depth is
+    //   greater than the player's depth (building is in the foreground);
+    // - the building must be at least as tall as the player to hide them
+    //   (equal height: the player's top is flush with the roof, still hidden).
+    function getOccludingBuildingIds(player: DemoEntity): Set<string> {
+      const result = new Set<string>();
+      const playerDepth = player.col + player.row;
+      const directions = [
+        { dc: -1, dr: 0 },   // West  - behind the South face
+        { dc: 0, dr: -1 },   // North - behind the East face
+        { dc: -1, dr: -1 }   // NW    - behind both faces
+      ];
+
+      for (const b of buildings) {
+        if (b.height < player.height) continue;
+
+        const cols = Math.ceil(b.width / CELL_SIZE);
+        const rows = Math.ceil(b.length / CELL_SIZE);
+        const seDepth = (b.col + cols - 1) + (b.row + rows - 1);
+        if (seDepth <= playerDepth) continue;
+
+        const steps = Math.floor(b.height / CELL_SIZE);
+        let occludes = false;
+        for (let dc = 0; dc < cols && !occludes; dc++) {
+          for (let dr = 0; dr < rows && !occludes; dr++) {
+            for (const dir of directions) {
+              for (let s = 1; s <= steps; s++) {
+                if (b.col + dc + dir.dc * s === player.col && b.row + dr + dir.dr * s === player.row) {
+                  occludes = true;
+                  break;
+                }
+              }
+              if (occludes) break;
+            }
+          }
+        }
+        if (occludes) result.add(b.id);
+      }
+      return result;
+    }
+
+    /** SE-corner depth used for painter's-algorithm sorting. */
+    function seDepth(e: DemoEntity): number {
+      if (e.id === 'player') return e.col + e.row;
+      return (e.col + Math.ceil(e.width / CELL_SIZE) - 1)
+           + (e.row + Math.ceil(e.length / CELL_SIZE) - 1);
     }
 
     function getPlayerLayer(): number {
@@ -327,7 +381,7 @@ export const standaloneDemo: Demo = {
       ctx.restore();
     }
 
-    function drawBox(entity: DemoEntity, layerIndex: number): void {
+    function drawBox(entity: DemoEntity, layerIndex: number, occluded: boolean): void {
       const baseX = entity.col * CELL_SIZE;
       const baseY = entity.row * CELL_SIZE;
       const w = entity.width;
@@ -351,7 +405,7 @@ export const standaloneDemo: Demo = {
       const bcolors = entityIndex >= 0 ? buildingColors[entityIndex] : ['#ccc', '#aaa', '#888', '#666', '#444', '#222'];
 
       ctx.save();
-      ctx.globalAlpha = alpha;
+      ctx.globalAlpha = alpha * (occluded ? 0.5 : 1.0);
 
       if (!state.showWireframe) {
         const faces: [ScreenPoint, ScreenPoint, ScreenPoint, ScreenPoint, string][] = [
@@ -477,6 +531,25 @@ export const standaloneDemo: Demo = {
 
       updateCamera();
 
+      // Occlusion: which buildings currently hide the player?
+      const occludingIds = getOccludingBuildingIds(playerEntity);
+      occlusionEl.textContent = occludingIds.size > 0
+        ? `OCCLUDED by ${[...occludingIds].join(', ')}`
+        : 'VISIBLE';
+      occlusionEl.style.color = occludingIds.size > 0 ? '#4ecdc4' : '#4ad97a';
+
+      // Painter's algorithm: draw entities back-to-front by SE-corner depth.
+      // Tie-break: buildings before the player (player stands "in front").
+      const sortedEntities = [...state.entities].sort((a, b) => {
+        const da = seDepth(a);
+        const db = seDepth(b);
+        if (da !== db) return da - db;
+        const aBuilding = a.id !== 'player';
+        const bBuilding = b.id !== 'player';
+        if (aBuilding !== bBuilding) return aBuilding ? -1 : 1;
+        return 0;
+      });
+
       // Render by layers (back to front): Layer 0 → Layer 4
       for (let layerIdx = 0; layerIdx < LAYER_COUNT; layerIdx++) {
         const parallax = getParallaxFactor(layerIdx);
@@ -500,11 +573,11 @@ export const standaloneDemo: Demo = {
         // Draw grid for this layer (each layer shows its own grid with correct parallax)
         drawGrid(parallax);
 
-        // Draw entities for this layer
-        for (const entity of state.entities) {
+        // Draw entities for this layer (depth-sorted, occluders semi-transparent)
+        for (const entity of sortedEntities) {
           const entityLayer = getLayerForDepth(entity.col + entity.row);
           if (entityLayer === layerIdx) {
-            drawBox(entity, layerIdx);
+            drawBox(entity, layerIdx, occludingIds.has(entity.id));
           }
         }
 
