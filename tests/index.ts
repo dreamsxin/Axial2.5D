@@ -12,7 +12,12 @@ import {
   PathFinder,
   EventBus,
   MapData,
-  TileData
+  TileData,
+  IsoBox,
+  OcclusionSystem,
+  LayerManager,
+  InputManager,
+  worldToGrid as isoWorldToGrid
 } from '../src/index';
 
 // Canvas will be created by CanvasRenderer in mock mode if needed
@@ -135,8 +140,38 @@ test('Camera setPosition with projection', () => {
   const camera = new IsoCamera(800, 600);
   camera.setPosition(100, 100, proj);
   
-  // Camera should be positioned so (100, 100) is at center
-  assert(camera.offsetX !== 0 || camera.offsetY !== 0, 'Camera should have non-zero offset');
+  // Regression (BUG-1): target must project exactly onto the canvas center,
+  // i.e. offset = -proj * scale (previously a half-canvas term was missing).
+  const sp = proj.worldToScreen(100, 100, 0);
+  const screen = camera.cameraToScreen(sp.sx, sp.sy);
+  assert(Math.abs(screen.sx - 400) < 0.001, `Target screenX should be canvas center 400, got ${screen.sx}`);
+  assert(Math.abs(screen.sy - 300) < 0.001, `Target screenY should be canvas center 300, got ${screen.sy}`);
+});
+
+test('Camera setPosition centers target at any zoom level', () => {
+  const proj = new Projection({ type: 'isometric', viewAngle: 45 });
+  const camera = new IsoCamera(800, 600);
+  camera.zoom(2);
+  camera.setPosition(100, 100, proj);
+  
+  const sp = proj.worldToScreen(100, 100, 0);
+  const screen = camera.cameraToScreen(sp.sx, sp.sy);
+  assert(Math.abs(screen.sx - 400) < 0.001, 'Target should stay centered at scale 2');
+  assert(Math.abs(screen.sy - 300) < 0.001, 'Target should stay centered at scale 2');
+});
+
+test('Camera pipeline roundtrip (cameraToScreen <-> screenToCameraSpace)', () => {
+  const camera = new IsoCamera(800, 600);
+  camera.pan(37, -22);
+  camera.zoom(1.8);
+  
+  // Regression (BUG-2): both transform paths must share the same convention
+  // screen = proj * scale + offset + center.
+  const pt = { sx: 123, sy: -45 };
+  const screen = camera.cameraToScreen(pt.sx, pt.sy);
+  const back = camera.screenToCameraSpace(screen.sx, screen.sy);
+  assert(Math.abs(back.sx - pt.sx) < 0.001, `Roundtrip sx mismatch: ${back.sx} != ${pt.sx}`);
+  assert(Math.abs(back.sy - pt.sy) < 0.001, `Roundtrip sy mismatch: ${back.sy} != ${pt.sy}`);
 });
 
 console.log('');
@@ -161,9 +196,10 @@ test('GridSystem gridToWorld conversion', () => {
   const proj = new Projection({ type: 'isometric', viewAngle: 45 });
   const grid = new GridSystem({ width: 10, height: 10, tileW: 64, tileH: 32 }, proj);
   
+  // gridToWorld returns the tile's world-space corner: (col * tileW, row * tileH)
   const world = grid.gridToWorld(5, 5);
-  assertEqual(world.x, 0, 'Center grid (5,5) should map to x=0');
-  assertEqual(world.z, 160, 'Center grid (5,5) should map to z=160');
+  assertEqual(world.x, 320, 'Grid (5,5) should map to x=320 (5 * 64)');
+  assertEqual(world.z, 160, 'Grid (5,5) should map to z=160 (5 * 32)');
 });
 
 test('GridSystem worldToGrid roundtrip', () => {
@@ -416,6 +452,181 @@ test('CanvasRenderer worldToScreen', () => {
   // With camera at origin, (0,0) should be near center
   assert(Math.abs(screen.sx - 400) < 10, 'X should be near canvas center');
   assert(Math.abs(screen.sy - 300) < 10, 'Y should be near canvas center');
+});
+
+console.log('');
+
+// ============================================================================
+// Regression Tests (coordinate system / occlusion / layering fixes)
+// ============================================================================
+console.log('Regression Tests:');
+console.log('-----------------');
+
+test('IsoUtils.worldToGrid uses floor (tile-corner convention)', () => {
+  // Regression (BUG-3): gridToWorld returns the tile corner, so the inverse
+  // must floor – Math.round would jump to the next tile halfway through it.
+  const inside = isoWorldToGrid(63.9, 63.9, 64);
+  assertEqual(inside.col, 0, 'Point inside tile 0 should map to col 0');
+  assertEqual(inside.row, 0, 'Point inside tile 0 should map to row 0');
+  
+  const boundary = isoWorldToGrid(64, 0, 64);
+  assertEqual(boundary.col, 1, 'Point on boundary should map to col 1');
+  
+  const negative = isoWorldToGrid(-1, 0, 64);
+  assertEqual(negative.col, -1, 'Negative world coord should floor to col -1');
+});
+
+test('InputManager worldToGrid respects rectangular tiles (tileW != tileH)', () => {
+  const proj = new Projection({ type: 'isometric', viewAngle: 45 });
+  const renderer = new CanvasRenderer(800, 600, proj);
+  const eventBus = new EventBus();
+  const input = new InputManager({
+    canvas: renderer.canvas as HTMLCanvasElement,
+    camera: renderer.camera,
+    projection: proj,
+    eventBus,
+    cellSize: 64,
+    tileH: 32
+  });
+  
+  // Regression (BUG-4): rows must advance every tileH (32) world units,
+  // not every cellSize (64). Old code mapped y=33 to row 0.
+  const grid = input.worldToGrid(70, 33);
+  assertEqual(grid.col, 1, 'col = floor(70 / 64) = 1');
+  assertEqual(grid.row, 1, 'row = floor(33 / 32) = 1');
+  
+  const row0 = input.worldToGrid(10, 31);
+  assertEqual(row0.row, 0, 'y=31 is still inside row 0');
+});
+
+test('LayerManager assigns layers using configured maxDepth', () => {
+  // Regression (RISK-5): with a map-sized maxDepth, entities spread across
+  // layers instead of all collapsing into layer 0 (old hardcoded 2000).
+  const lm = new LayerManager({ layerCount: 5, maxDepth: 20 });
+  assertEqual(lm.getLayerForDepth(0), 0, 'Depth 0 -> layer 0');
+  assertEqual(lm.getLayerForDepth(8), 2, 'Depth 8 -> layer 2');
+  assertEqual(lm.getLayerForDepth(16), 4, 'Depth 16 -> layer 4');
+  assertEqual(lm.getLayerForDepth(100), 4, 'Depth beyond maxDepth clamps to last layer');
+  
+  const legacy = new LayerManager({ layerCount: 5 }); // default maxDepth 2000
+  assertEqual(legacy.getLayerForDepth(8), 0, 'Default maxDepth keeps small depths in layer 0');
+});
+
+test('EntityManager emits lifecycle events (entityAdded/Moved/Removed)', () => {
+  const proj = new Projection({ type: 'isometric', viewAngle: 45 });
+  const grid = new GridSystem({ width: 10, height: 10, tileW: 64, tileH: 32 }, proj);
+  const camera = new IsoCamera(800, 600);
+  const eventBus = new EventBus();
+  const entityManager = new EntityManager(grid, proj, camera, undefined, 64, eventBus);
+  
+  // Regression (BUG-8): occlusion invalidation relies on these events.
+  const events: string[] = [];
+  eventBus.on('entityAdded', (d: any) => events.push(`added:${d.id}:${d.isBuilding}`));
+  eventBus.on('entityMoved', (d: any) => events.push(`moved:${d.id}:${d.oldCol},${d.oldRow}->${d.col},${d.row}`));
+  eventBus.on('entityRemoved', (d: any) => events.push(`removed:${d.id}`));
+  
+  const building = new BasicEntity('b1', 2, 2);
+  building.entityType = 'building';
+  entityManager.addEntity(building);
+  entityManager.moveEntity(building, 3, 2);
+  entityManager.removeEntity('b1');
+  
+  assertEqual(events.length, 3, `Expected 3 lifecycle events, got ${events.length}`);
+  assertEqual(events[0], 'added:b1:true', 'entityAdded payload should include isBuilding');
+  assertEqual(events[1], 'moved:b1:2,2->3,2', 'entityMoved payload should include old and new position');
+  assertEqual(events[2], 'removed:b1', 'entityRemoved payload should include id');
+});
+
+test('Multi-tile building occupies its full footprint on the grid', () => {
+  const proj = new Projection({ type: 'isometric', viewAngle: 45 });
+  const grid = new GridSystem({ width: 10, height: 10, tileW: 64, tileH: 32 }, proj);
+  const camera = new IsoCamera(800, 600);
+  const entityManager = new EntityManager(grid, proj, camera);
+  
+  // Regression (BUG-10): a 128x64 building on 64x32 tiles covers 2x2 tiles.
+  const building = new IsoBox('big', 3, 3, 128, 64, 64);
+  building.entityType = 'building';
+  entityManager.addEntity(building);
+  
+  assertEqual(entityManager.getFootprintTiles(building).length, 4, 'Footprint should cover 4 tiles');
+  assert(grid.isWalkable(3, 3) === false, 'Anchor tile should be occupied');
+  assert(grid.isWalkable(4, 4) === false, 'Far footprint tile (4,4) should be occupied');
+  assert(grid.isWalkable(5, 4) === true, 'Tile outside footprint should stay walkable');
+  
+  // Footprint must move with the entity and release old tiles
+  const moved = entityManager.moveEntity(building, 6, 6);
+  assert(moved === true, 'Move should succeed');
+  assert(grid.isWalkable(3, 3) === true, 'Old anchor tile should be released');
+  assert(grid.isWalkable(7, 7) === false, 'New footprint tile (7,7) should be occupied');
+  
+  // Another entity cannot move into the occupied footprint
+  const char = new BasicEntity('c0', 0, 0);
+  entityManager.addEntity(char);
+  const blocked = entityManager.moveEntity(char, 7, 7);
+  assert(blocked === false, 'Move into occupied footprint tile should fail');
+  assert(char.col === 0 && char.row === 0, 'Blocked entity should stay in place');
+});
+
+test('OcclusionSystem: building shadow occludes characters NW of it', () => {
+  const proj = new Projection({ type: 'isometric', viewAngle: 45 });
+  const grid = new GridSystem({ width: 10, height: 10, tileW: 64, tileH: 32 }, proj);
+  const camera = new IsoCamera(800, 600);
+  const entityManager = new EntityManager(grid, proj, camera);
+  
+  const building = new IsoBox('tower', 5, 5, 64, 64, 128);
+  building.entityType = 'building';
+  entityManager.addEntity(building);
+  
+  const behind = new BasicEntity('behind', 4, 5, '#fff', 20, 30);  // West tile: in shadow
+  const inFront = new BasicEntity('front', 6, 6, '#fff', 20, 30);  // SE tile: visible side
+  entityManager.addEntity(behind);
+  entityManager.addEntity(inFront);
+  
+  const occlusion = new OcclusionSystem({ entityManager, gridSystem: grid, tileSize: 64 });
+  
+  assert(occlusion.isOccluded(behind) === true, 'Character NW of tall building should be occluded');
+  assert(occlusion.isOccluded(inFront) === false, 'Character SE of building should NOT be occluded');
+  
+  const occluders = occlusion.getOccludingBuildings(behind);
+  assertEqual(occluders.length, 1, 'Exactly one building should occlude');
+  assertEqual(occluders[0].buildingId, 'tower', 'Occluder should be the tower');
+});
+
+test('OcclusionSystem: character move triggers callback without markDirty', () => {
+  const proj = new Projection({ type: 'isometric', viewAngle: 45 });
+  const grid = new GridSystem({ width: 10, height: 10, tileW: 64, tileH: 32 }, proj);
+  const camera = new IsoCamera(800, 600);
+  const eventBus = new EventBus();
+  const entityManager = new EntityManager(grid, proj, camera, undefined, 64, eventBus);
+  
+  const building = new IsoBox('hall', 5, 5, 64, 64, 128);
+  building.entityType = 'building';
+  entityManager.addEntity(building);
+  const walker = new BasicEntity('walker', 8, 8, '#fff', 20, 30);
+  entityManager.addEntity(walker);
+  
+  const occlusion = new OcclusionSystem({ entityManager, gridSystem: grid, tileSize: 64 });
+  occlusion.update(); // settle initial state (no events expected for walker)
+  
+  // Regression (BUG-9): callbacks used to fire only when the shadow map was
+  // recalculated, so a character walking into a shadow was never reported.
+  const calls: { occluded: boolean; count: number }[] = [];
+  occlusion.onOcclusionChange((entity, occlusions) => {
+    if (entity.id === 'walker') calls.push({ occluded: occlusions.length > 0, count: occlusions.length });
+  });
+  
+  entityManager.moveEntity(walker, 4, 5); // into the shadow (character move: no markDirty)
+  occlusion.update();
+  assertEqual(calls.length, 1, 'Walking into shadow should fire exactly one callback');
+  assert(calls[0].occluded, 'Callback should report the walker as occluded');
+  
+  occlusion.update(); // anti-spam: standing still must not re-fire
+  assertEqual(calls.length, 1, 'Standing still in shadow should not re-fire');
+  
+  entityManager.moveEntity(walker, 8, 8); // back out of the shadow
+  occlusion.update();
+  assertEqual(calls.length, 2, 'Walking out of shadow should fire a second callback');
+  assert(calls[1].occluded === false, 'Callback should report the walker as visible');
 });
 
 console.log('');

@@ -16,6 +16,8 @@ export interface InputManagerConfig {
   projection: Projection;
   eventBus: EventBus;
   cellSize?: number;
+  /** Tile height in world units (row axis). Defaults to cellSize for square tiles. */
+  tileH?: number;
   /** Optional: inject a LayerManager so parallax factors stay in sync with the rest of the engine */
   layerManager?: LayerManager;
 }
@@ -38,6 +40,7 @@ export class InputManager {
   private projection: Projection;
   private eventBus: EventBus;
   private cellSize: number;
+  private tileH: number;
   /** Optional LayerManager for consistent parallaxFactor calculation across the engine */
   private layerManager?: LayerManager;
   
@@ -75,6 +78,7 @@ export class InputManager {
     this.projection = config.projection;
     this.eventBus = config.eventBus;
     this.cellSize = config.cellSize ?? 50;
+    this.tileH = config.tileH ?? this.cellSize;
     this.layerManager = config.layerManager;
     
     this.mouseState = {
@@ -226,12 +230,13 @@ export class InputManager {
 
   /**
    * Convert world coordinates to grid coordinates.
-   * Uses cellSize (= tileW = tileH) which matches GridSystem configuration.
+   * Uses cellSize (= tileW) for the column axis and tileH for the row axis,
+   * matching the GridSystem configuration (tileW and tileH may differ).
    */
   public worldToGrid(worldX: number, worldY: number): { col: number; row: number } {
     return {
       col: Math.floor(worldX / this.cellSize),
-      row: Math.floor(worldY / this.cellSize)
+      row: Math.floor(worldY / this.tileH)
     };
   }
 

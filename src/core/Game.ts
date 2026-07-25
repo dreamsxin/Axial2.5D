@@ -84,6 +84,7 @@ export class Game {
   private running: boolean = false;
   private lastTime: number = 0;
   private rafId: number = 0; // requestAnimationFrame handle – kept for cancelAnimationFrame in stop()
+  private _maxDepthExplicit: boolean = false; // true once user sets maxDepth via setRenderOptions()
   private canvas: HTMLCanvasElement | OffscreenCanvas;
   private moduleConfig?: ModuleConfig;
   private _renderOptions: {
@@ -182,11 +183,23 @@ export class Game {
     // Create grid system
     this.gridSystem = new GridSystem(mapData, this.projection);
 
+    // Derive a sensible maxDepth default from the map size so parallax layers
+    // actually split (col+row ranges 0..width+height). The hard-coded 2000
+    // default collapses every realistically-sized map into layer 0, silently
+    // disabling parallax/alpha/zIndex layering. An explicit maxDepth passed
+    // via setRenderOptions() before init() always wins.
+    if (!this._maxDepthExplicit) {
+      this._renderOptions.maxDepth = mapData.width + mapData.height;
+    }
+
     // Create entity manager (layerManager will be set by ModuleManager if available)
     this.entityManager = new EntityManager(
       this.gridSystem,
       this.projection,
-      this.renderer.camera
+      this.renderer.camera,
+      undefined,        // layerManager (assigned later via setLayerManager)
+      mapData.tileW,    // multi-tile splitter tile size
+      this.eventBus     // entity lifecycle events (occlusion invalidation)
     );
 
     // Create input manager
@@ -196,7 +209,15 @@ export class Game {
       projection: this.projection,
       eventBus: this.eventBus,
       cellSize: mapData.tileW,
+      tileH: mapData.tileH,
       // LayerManager will be set later once modules are initialised (see below)
+    });
+
+    // Keep input coordinate conversion in sync with the render layer config
+    this.inputManager.setLayerConfig({
+      layerCount: this._renderOptions.layerCount ?? 5,
+      maxDepth: this._renderOptions.maxDepth,
+      parallaxRange: this._renderOptions.parallaxRange ?? 0.7
     });
 
     // Initialize UI
@@ -248,6 +269,20 @@ export class Game {
         this.inputManager?.setPlayerPosition(data.col, data.row);
       });
     }
+
+    // Invalidate the occlusion shadow map whenever a BUILDING is added, moved
+    // or removed. Character movement does not alter the shadow map (per-entity
+    // occlusion state is re-evaluated on every OcclusionSystem.update() call).
+    // Works for both module-created and manually-assigned occlusionSystem
+    // because the lookup happens at event time.
+    const invalidateOcclusion = (data: any) => {
+      if (data?.isBuilding) {
+        this.occlusionSystem?.markDirty?.();
+      }
+    };
+    this.eventBus.on('entityAdded', invalidateOcclusion);
+    this.eventBus.on('entityMoved', invalidateOcclusion);
+    this.eventBus.on('entityRemoved', invalidateOcclusion);
 
     this.log?.info('Game initialized', { mapSize: `${mapData.width}x${mapData.height}` });
   }
@@ -516,6 +551,8 @@ export class Game {
     parallaxRange?: number;
     maxDepth?: number;
   }): void {
+    // Explicit maxDepth always wins over the map-derived default applied in init()
+    if (options.maxDepth !== undefined) this._maxDepthExplicit = true;
     this._renderOptions = { ...this._renderOptions, ...options };
   }
 

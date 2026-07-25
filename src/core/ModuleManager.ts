@@ -75,6 +75,8 @@ export interface ModuleConfig {
   layerManager?: {
     enabled: boolean;
     layerCount?: number;
+    /** Max depth (col+row) used for layer assignment; defaults to map width + height */
+    maxDepth?: number;
     foregroundAlpha?: number;
     zIndexStep?: number;
     parallaxRange?: number;
@@ -139,8 +141,10 @@ export class ModuleManager {
     if (!cfg?.enabled) return;
 
     try {
+      const mapDims = this.game.gridSystem?.getDimensions();
       this.modules.layerManager = new LayerManager({
         layerCount: cfg.layerCount ?? 5,
+        maxDepth: cfg.maxDepth ?? (mapDims ? mapDims.width + mapDims.height : 2000),
         foregroundAlpha: cfg.foregroundAlpha ?? this.game.config?.get('render.foregroundAlpha') ?? 0.6,
         zIndexStep: cfg.zIndexStep ?? this.game.config?.get('render.zIndexStep') ?? 30,
         parallaxRange: cfg.parallaxRange ?? this.game.config?.get('render.parallaxRange') ?? 0.7,
@@ -170,7 +174,10 @@ export class ModuleManager {
         gridSystem: this.game.gridSystem,
         entityManager: this.game.entityManager,
         layerCount: this.modules.layerManager?.getLayerCount() ?? 5,
-        maxDepth: 2000,
+        maxDepth: (() => {
+          const dims = this.game.gridSystem!.getDimensions();
+          return dims.width + dims.height;
+        })(),
         parallaxRange: cfg.autoParallax !== false ? 0.7 : 0,
         baseParallax: 0.3
       });

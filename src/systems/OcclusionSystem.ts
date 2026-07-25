@@ -273,7 +273,14 @@ export class OcclusionSystem {
   }
 
   /**
-   * Notify callbacks about occlusion changes
+   * Notify callbacks about occlusion changes.
+   *
+   * Fires when:
+   *  - an entity's occlusion STATE changes (visible ↔ occluded), or
+   *  - while occluded, the SET of occluding buildings changes.
+   *
+   * A character standing still inside the same shadow does NOT re-fire the
+   * callback every frame (prevents callback spam).
    */
   private notifyOcclusionChanges(): void {
     const allEntities = this.entityManager.getAllEntities();
@@ -282,11 +289,16 @@ export class OcclusionSystem {
       if (entity.isBuilding()) continue; // Only characters
       
       const occlusions = this.getOccludingBuildings(entity);
-      const wasOccluded = this.occludedEntities.has(entity.id);
+      const previous = this.occludedEntities.get(entity.id);
+      const wasOccluded = previous !== undefined;
       const isOccluded = occlusions.some(occ => occ.height > entity.height);
       
-      // Notify if occlusion state changed
-      if (wasOccluded !== isOccluded || occlusions.length > 0) {
+      const sameOccluders = previous !== undefined
+        && previous.length === occlusions.length
+        && previous.every(p => occlusions.some(o => o.buildingId === p.buildingId));
+      
+      // Notify if occlusion state changed, or the occluding set changed
+      if (wasOccluded !== isOccluded || (isOccluded && !sameOccluders)) {
         if (isOccluded) {
           this.occludedEntities.set(entity.id, occlusions);
         } else {
@@ -311,13 +323,19 @@ export class OcclusionSystem {
 
   /**
    * Update occlusion system.
-   * Only recalculates when dirty (building layout changed) to avoid the
-   * O(entities × mapWidth × mapHeight) cost every frame.
+   * Only recalculates the shadow map when dirty (building layout changed) to
+   * avoid the O(entities × mapWidth × mapHeight) cost every frame. When the
+   * map is clean we still re-evaluate per-entity occlusion state (cheap
+   * O(entities) map lookups) so onOcclusionChange callbacks also fire when a
+   * CHARACTER moves into or out of a shadow – previously they only fired when
+   * the map was recalculated.
    */
   public update(): void {
     if (this.dirty) {
       this.calculateOcclusionMap();
       this.dirty = false;
+    } else {
+      this.notifyOcclusionChanges();
     }
   }
 

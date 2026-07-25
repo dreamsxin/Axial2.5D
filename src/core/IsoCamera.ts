@@ -56,9 +56,14 @@ export class IsoCamera {
     // Convert world position to screen space
     const screenPos = projection.worldToScreen(worldX, worldZ, worldY);
     
-    // Center the camera so this point is in the middle of the canvas
-    this.offsetX = -screenPos.sx + this.canvasWidth / 2;
-    this.offsetY = -screenPos.sy + this.canvasHeight / 2;
+    // Center the camera so this point is in the middle of the canvas.
+    // The render path (worldToScreen / applyTransform) computes:
+    //   screen = proj * scale + offset + canvasCenter
+    // so the offset must be -proj * scale. The canvas center is added by the
+    // render path itself – adding it here as well double-counts it and pushes
+    // the target to the bottom-right corner of the canvas.
+    this.offsetX = -screenPos.sx * this.scale;
+    this.offsetY = -screenPos.sy * this.scale;
   }
 
   /**
@@ -94,22 +99,25 @@ export class IsoCamera {
 
   /**
    * Convert a screen position to camera-adjusted coordinates
-   * (applies camera offset and scale)
+   * (applies camera offset and scale).
+   * Uses the same convention as worldToScreen with parallaxFactor = 1:
+   *   screen = cameraSpace * scale + offset + canvasCenter
    */
   public screenToCameraSpace(sx: number, sy: number): ScreenCoord {
     return {
-      sx: (sx - this.canvasWidth / 2) / this.scale - this.offsetX,
-      sy: (sy - this.canvasHeight / 2) / this.scale - this.offsetY
+      sx: (sx - this.canvasWidth / 2 - this.offsetX) / this.scale,
+      sy: (sy - this.canvasHeight / 2 - this.offsetY) / this.scale
     };
   }
 
   /**
-   * Convert camera-space coordinates to screen coordinates
+   * Convert camera-space coordinates to screen coordinates.
+   * Matches worldToScreen with parallaxFactor = 1.
    */
   public cameraToScreen(sx: number, sy: number): ScreenCoord {
     return {
-      sx: (sx + this.offsetX) * this.scale + this.canvasWidth / 2,
-      sy: (sy + this.offsetY) * this.scale + this.canvasHeight / 2
+      sx: sx * this.scale + this.offsetX + this.canvasWidth / 2,
+      sy: sy * this.scale + this.offsetY + this.canvasHeight / 2
     };
   }
 
@@ -119,9 +127,14 @@ export class IsoCamera {
    */
   public applyTransform(ctx: CanvasRenderingContext2D): void {
     ctx.save();
+    // Order matters: translate(center) → translate(offset) → scale.
+    // A world-space point p lands at center + offset + scale * p, which matches
+    // worldToScreen() with parallaxFactor = 1. (Previously the offset was
+    // applied AFTER scaling, so ctx-transform rendering disagreed with
+    // worldToScreen at zoom levels other than 1.)
     ctx.translate(this.canvasWidth / 2, this.canvasHeight / 2);
-    ctx.scale(this.scale, this.scale);
     ctx.translate(this.offsetX, this.offsetY);
+    ctx.scale(this.scale, this.scale);
   }
 
   /**
@@ -135,17 +148,15 @@ export class IsoCamera {
    * Get the visible world bounds given a projection
    */
   public getVisibleBounds(projection: Projection): { minX: number; maxX: number; minY: number; maxY: number } {
-    const halfW = (this.canvasWidth / 2) / this.scale;
-    const halfH = (this.canvasHeight / 2) / this.scale;
-    
-    // Convert screen corners to world coordinates
+    // Camera-space coordinates of the screen corners, using the same
+    // convention as screenToCameraSpace: cam = (screen - center - offset) / scale
     const topLeft = projection.screenToWorld(
-      -halfW - this.offsetX,
-      -halfH - this.offsetY
+      (0 - this.canvasWidth / 2 - this.offsetX) / this.scale,
+      (0 - this.canvasHeight / 2 - this.offsetY) / this.scale
     );
     const bottomRight = projection.screenToWorld(
-      halfW - this.offsetX,
-      halfH - this.offsetY
+      (this.canvasWidth - this.canvasWidth / 2 - this.offsetX) / this.scale,
+      (this.canvasHeight - this.canvasHeight / 2 - this.offsetY) / this.scale
     );
     
     return {
@@ -378,6 +389,10 @@ export class IsoCamera {
       parallaxFactor?: number;
       offsetX?: number;
       offsetY?: number;
+      /** Max depth (col+row) for auto-parallax; defaults to map dimensions (width + height) */
+      maxDepth?: number;
+      /** Layer count for auto-parallax (default 5) */
+      layerCount?: number;
     }
   ): void {
     const worldPos = gridSystem.gridToWorld(entity.col, entity.row);
@@ -385,8 +400,11 @@ export class IsoCamera {
     // Auto-calculate parallax from entity depth if not provided
     const parallaxFactor = options?.parallaxFactor ?? (() => {
       const depth = entity.col + entity.row;
-      const layer = Math.floor((depth / 2000) * 5);
-      return 0.3 + (layer / 4) * 0.7;
+      const dims = gridSystem.getDimensions();
+      const maxDepth = options?.maxDepth ?? (dims.width + dims.height);
+      const layerCount = options?.layerCount ?? 5;
+      const layer = Math.max(0, Math.min(layerCount - 1, Math.floor((depth / maxDepth) * layerCount)));
+      return 0.3 + (layer / (layerCount - 1)) * 0.7;
     })();
 
     this.follow(

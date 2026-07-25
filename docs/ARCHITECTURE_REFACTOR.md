@@ -13,7 +13,7 @@
 
 ### 1. Logger - Unified Logging System
 
-**Location**: `src/utils/Logger.ts`
+**Location**: `src/ui/Logger.ts` (moved from `src/utils/Logger.ts` in Phase 5)
 
 **Features**:
 - Log levels: `debug` | `info` | `warn` | `error`

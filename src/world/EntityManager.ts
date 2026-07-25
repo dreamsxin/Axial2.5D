@@ -12,6 +12,7 @@ import { GridSystem } from './GridSystem';
 import { Entity, RenderItem, GridCoord } from '../core/types';
 import { LayerManager } from '../core/LayerManager';
 import { MultiTileEntity, MultiTileRenderUnit } from './MultiTileEntity';
+import { EventBus } from '../utils/EventBus';
 
 export class EntityManager {
   private entities: Map<string, Entity> = new Map();
@@ -20,6 +21,7 @@ export class EntityManager {
   private camera: IsoCamera;
   private layerManager?: LayerManager;  // For statistics tracking (Phase 6)
   private multiTileSplitter?: MultiTileEntity;  // For auto-splitting (Phase 6)
+  private eventBus?: EventBus;  // For entityAdded/entityMoved/entityRemoved events
   
   // Cache for split render units
   private renderUnitsCache: Map<string, MultiTileRenderUnit[]> = new Map();
@@ -29,17 +31,21 @@ export class EntityManager {
     projection: Projection,
     camera: IsoCamera,
     layerManager?: LayerManager,
-    tileSize?: number
+    tileSize?: number,
+    eventBus?: EventBus
   ) {
     this.gridSystem = gridSystem;
     this.projection = projection;
     this.camera = camera;
     this.layerManager = layerManager;
+    this.eventBus = eventBus;
     
-    // Initialize multi-tile entity splitter (Phase 6)
+    // Initialize multi-tile entity splitter (Phase 6).
+    // Default to the grid's actual tile width instead of a hard-coded 50 so
+    // footprints stay correct for maps with non-50px tiles.
     this.multiTileSplitter = new MultiTileEntity({
       enabled: true,
-      tileSize: tileSize ?? 50
+      tileSize: tileSize ?? gridSystem.getTileSize().width
     });
   }
 
@@ -102,6 +108,14 @@ export class EntityManager {
         this.layerManager.updateEntityCount(entity.col, entity.row, 1);
       }
     }
+
+    // Notify listeners (Game wires this to OcclusionSystem.markDirty for buildings)
+    this.eventBus?.emit('entityAdded', {
+      id: entity.id,
+      col: entity.col,
+      row: entity.row,
+      isBuilding: entity.isBuilding()
+    });
   }
 
   /**
@@ -140,6 +154,14 @@ export class EntityManager {
       // Clear cache and remove entity
       this.renderUnitsCache.delete(id);
       this.entities.delete(id);
+
+      // Notify listeners (Game wires this to OcclusionSystem.markDirty for buildings)
+      this.eventBus?.emit('entityRemoved', {
+        id: entity.id,
+        col: entity.col,
+        row: entity.row,
+        isBuilding: entity.isBuilding()
+      });
     }
   }
 
@@ -256,11 +278,33 @@ export class EntityManager {
   }
 
   /**
-   * Sync entity position with grid system
+   * Get all grid tiles covered by an entity's footprint.
+   * Single-tile entities cover just their anchor tile; multi-tile buildings
+   * cover ceil(width / tileW) × ceil(length / tileH) tiles extending southeast.
+   */
+  public getFootprintTiles(entity: Entity): GridCoord[] {
+    const tile = this.gridSystem.getTileSize();
+    const cols = Math.max(1, Math.ceil(((entity as any).width || tile.width) / tile.width));
+    const rows = Math.max(1, Math.ceil(((entity as any).length || tile.height) / tile.height));
+
+    const tiles: GridCoord[] = [];
+    for (let dc = 0; dc < cols; dc++) {
+      for (let dr = 0; dr < rows; dr++) {
+        tiles.push({ col: entity.col + dc, row: entity.row + dr });
+      }
+    }
+    return tiles;
+  }
+
+  /**
+   * Sync entity position with grid system.
+   * Marks EVERY tile of the entity's footprint as occupied (not just the
+   * anchor), so isWalkable() and PathFinder respect multi-tile buildings.
    */
   public syncEntityPosition(entity: Entity): void {
-    // Update grid occupancy
-    this.gridSystem.setEntity(entity.col, entity.row, entity);
+    for (const t of this.getFootprintTiles(entity)) {
+      this.gridSystem.setEntity(t.col, t.row, entity);
+    }
   }
 
   /**
@@ -270,20 +314,52 @@ export class EntityManager {
     const oldCol = entity.col;
     const oldRow = entity.row;
 
-    // Check if target is walkable
-    if (!this.gridSystem.isWalkable(newCol, newRow, entity)) {
-      return false;
+    // Footprint tiles the entity currently occupies
+    const oldTiles = this.getFootprintTiles(entity);
+
+    // Compute the footprint at the target position (temporarily move, then restore)
+    entity.col = newCol;
+    entity.row = newRow;
+    const newTiles = this.getFootprintTiles(entity);
+    entity.col = oldCol;
+    entity.row = oldRow;
+
+    // EVERY target footprint tile must be walkable, not just the anchor –
+    // otherwise a 2×2 building could be moved halfway into a wall and a
+    // character check remains the same as before for 1×1 entities.
+    for (const t of newTiles) {
+      if (!this.gridSystem.isWalkable(t.col, t.row, entity)) {
+        return false;
+      }
     }
 
-    // Clear old position
-    this.gridSystem.setEntity(oldCol, oldRow, null);
+    // Clear old footprint (only tiles still pointing at this entity)
+    for (const t of oldTiles) {
+      if (this.gridSystem.getTile(t.col, t.row)?.entity === entity) {
+        this.gridSystem.setEntity(t.col, t.row, null);
+      }
+    }
     
     // Update entity position
     entity.col = newCol;
     entity.row = newRow;
     
-    // Set new occupancy
-    this.gridSystem.setEntity(newCol, newRow, entity);
+    // Set new footprint occupancy
+    this.syncEntityPosition(entity);
+
+    // Refresh cached render units immediately – static buildings are skipped
+    // by updateAll(), so without this their units would keep stale positions.
+    this.invalidateRenderUnits(entity.id);
+
+    // Notify listeners (Game wires this to OcclusionSystem.markDirty for buildings)
+    this.eventBus?.emit('entityMoved', {
+      id: entity.id,
+      col: newCol,
+      row: newRow,
+      oldCol,
+      oldRow,
+      isBuilding: entity.isBuilding()
+    });
     
     return true;
   }
@@ -440,35 +516,35 @@ export class EntityManager {
       return true;
     });
 
-    // Use provided OcclusionSystem or calculate internal occlusion map
+    // Use provided OcclusionSystem or calculate internal occlusion map.
+    // NOTE: the semi-transparent building set is computed from ALL visible
+    // entities, not just the current layer's – otherwise a character on layer N
+    // occluded by a building on layer M would never turn that building
+    // transparent (cross-layer occlusion).
     if (occlusionSystem) {
-      // Use OcclusionSystem for occlusion queries
-      this.renderWithOcclusionSystem(ctx, layerEntities, parallaxFactor, wireframe, occlusionSystem);
+      const semiTransparentBuildings = this.findSemiTransparentBuildings(allEntities, occlusionSystem);
+      this.renderWithOcclusionSystem(ctx, layerEntities, parallaxFactor, wireframe, occlusionSystem, semiTransparentBuildings);
     } else {
-      // Legacy: calculate internal occlusion map
-      const tileSize = this.gridSystem.getTileSize().width;
-      const mapSize = this.gridSystem.getDimensions();
-      this.calculateOcclusionMap(layerEntities, tileSize, mapSize.width, mapSize.height);
-      this.renderWithInternalOcclusion(ctx, layerEntities, parallaxFactor, wireframe);
+      // Legacy: calculate internal occlusion map once per frame (on the first
+      // layer pass), not once per layer per frame.
+      if (layerIndex === undefined || layerIndex === 0) {
+        const tileSize = this.gridSystem.getTileSize().width;
+        const mapSize = this.gridSystem.getDimensions();
+        this.calculateOcclusionMap(allEntities, tileSize, mapSize.width, mapSize.height);
+      }
+      const semiTransparentBuildings = this.findSemiTransparentBuildingsInternal(allEntities);
+      this.renderWithInternalOcclusion(ctx, layerEntities, parallaxFactor, wireframe, semiTransparentBuildings);
     }
 
     ctx.restore();
   }
 
   /**
-   * Render using OcclusionSystem (Phase 2)
-   * Uses southeast corner depth for fine-grained sorting
+   * Compute the set of building IDs that must be drawn semi-transparent
+   * because they occlude at least one character (OcclusionSystem path).
    */
-  private renderWithOcclusionSystem(
-    ctx: CanvasRenderingContext2D,
-    entities: Entity[],
-    parallaxFactor: number,
-    wireframe: boolean,
-    occlusionSystem: any
-  ): void {
-    // Determine which buildings should be semi-transparent
+  private findSemiTransparentBuildings(entities: Entity[], occlusionSystem: any): Set<string> {
     const semiTransparentBuildings = new Set<string>();
-    
     for (const char of entities) {
       if (char.isBuilding()) continue; // Skip buildings
       
@@ -481,7 +557,42 @@ export class EntityManager {
         }
       }
     }
+    return semiTransparentBuildings;
+  }
 
+  /**
+   * Compute the set of building IDs that must be drawn semi-transparent
+   * (legacy internal occlusion map path).
+   */
+  private findSemiTransparentBuildingsInternal(entities: Entity[]): Set<string> {
+    const semiTransparentBuildings = new Set<string>();
+    for (const char of entities) {
+      if (char.isBuilding()) continue;
+      
+      const key = `${char.col},${char.row}`;
+      const occlusions = this.occlusionMap.get(key) || [];
+      
+      for (const occ of occlusions) {
+        if (occ.height > char.height) {
+          semiTransparentBuildings.add(occ.buildingId);
+        }
+      }
+    }
+    return semiTransparentBuildings;
+  }
+
+  /**
+   * Render using OcclusionSystem (Phase 2)
+   * Uses southeast corner depth for fine-grained sorting
+   */
+  private renderWithOcclusionSystem(
+    ctx: CanvasRenderingContext2D,
+    entities: Entity[],
+    parallaxFactor: number,
+    wireframe: boolean,
+    occlusionSystem: any,
+    semiTransparentBuildings: Set<string>
+  ): void {
     // ── Unified single-pass depth sort (Method B) ────────────────────────────
     //
     // All entities are sorted by a single "SE-corner depth" key and drawn in
@@ -549,23 +660,9 @@ export class EntityManager {
     ctx: CanvasRenderingContext2D,
     entities: Entity[],
     parallaxFactor: number,
-    wireframe: boolean
+    wireframe: boolean,
+    semiTransparentBuildings: Set<string>
   ): void {
-    // Determine which buildings should be semi-transparent
-    const semiTransparentBuildings = new Set<string>();
-    for (const char of entities) {
-      if (char.isBuilding()) continue;
-      
-      const key = `${char.col},${char.row}`;
-      const occlusions = this.occlusionMap.get(key) || [];
-      
-      for (const occ of occlusions) {
-        if (occ.height > char.height) {
-          semiTransparentBuildings.add(occ.buildingId);
-        }
-      }
-    }
-
     // Unified single-pass depth sort – same strategy as renderWithOcclusionSystem.
     // See detailed comment in that method for rationale.
     const TILE = 50;

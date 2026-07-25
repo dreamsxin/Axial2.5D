@@ -42,11 +42,18 @@ export function gridToWorld(col: number, row: number, cellSize: number): { x: nu
  * @param worldY - World Y coordinate
  * @param cellSize - Size of each cell in pixels
  * @returns Grid coordinates {col, row}
+ *
+ * Uses Math.floor because gridToWorld(col, row) returns the top-left corner of
+ * the tile (col * cellSize, row * cellSize). A point anywhere inside the tile
+ * satisfies col * cellSize <= x < (col+1) * cellSize → col = floor(x / cellSize).
+ * Math.round would shift the boundary to the middle of the tile, causing picks
+ * to jump to the next tile while the cursor is still in the first half of the
+ * current one (see GridSystem.worldToGrid, which uses the same convention).
  */
 export function worldToGrid(worldX: number, worldY: number, cellSize: number): { col: number; row: number } {
   return { 
-    col: Math.round(worldX / cellSize), 
-    row: Math.round(worldY / cellSize) 
+    col: Math.floor(worldX / cellSize), 
+    row: Math.floor(worldY / cellSize) 
   };
 }
 

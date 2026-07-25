@@ -1,435 +1,206 @@
-# Occlusion System - Automatic Entity Transparency
+# Occlusion System - Building Shadows & Semi-Transparency
 
-## 🎯 Overview
+## Overview
 
-The Occlusion System automatically handles entity transparency when entities move behind tall objects (buildings, walls, etc.). This creates a more realistic isometric view where players can see their character even when behind obstacles.
+The Occlusion System handles the visual relationship between buildings and
+characters in the isometric view. The camera sits at the **southeast (SE)**
+looking **northwest (NW)**, so a tall building hides characters standing in
+the tiles directly behind it. When a character is occluded, the occluding
+buildings are rendered **semi-transparent (alpha 0.5)** so the character
+remains visible.
 
----
+Key properties:
 
-## 📦 Features
-
-### 1. Pre-calculated Occlusion Map
-- Calculates which tiles are occluded by tall objects
-- Caches results for O(1) lookup performance
-- Only recalculates when entities move
-
-### 2. Automatic Transparency
-- Entities in occluded tiles automatically become semi-transparent
-- Configurable transparency levels
-- No manual checks needed in game logic
-
-### 3. Configurable Parameters
-- `occludedAlpha`: Transparency for occluded entities (default 0.5)
-- `normalAlpha`: Opacity for visible entities (default 1.0)
-- `minHeight`: Minimum height to cause occlusion (default 50)
-- `checkHeight`: Enable/disable height checking
+- Pre-computed shadow map with O(1) per-tile lookup
+- Incremental updates: the map is only rebuilt when a **building** is added,
+  removed, or moved (`markDirty`); character movement is re-evaluated cheaply
+  every `update()`
+- Change callbacks (`onOcclusionChange`) fire on state transitions without
+  spamming every frame
+- Multi-tile buildings: shadow is cast from every occupied tile, depth sorting
+  uses the building's **southeast corner**
+- Cross-layer: semi-transparency is resolved against **all** entities, not
+  just the layer currently being rendered
 
 ---
 
-## 🚀 Usage
+## Usage
 
-### Basic Setup
+### Construction
 
 ```typescript
 import { OcclusionSystem } from 'axial-2-5d';
 
-// Create occlusion system
-const occlusion = new OcclusionSystem(
-  gridSystem,
-  entityManager,
-  {
-    occludedAlpha: 0.5,    // 50% transparent when occluded
-    normalAlpha: 1.0,      // 100% opaque when visible
-    minHeight: 60,         // Objects taller than 60px cause occlusion
-    checkHeight: true      // Enable height checking
-  }
-);
+const occlusion = new OcclusionSystem({
+  entityManager: game.entityManager,
+  gridSystem: game.gridSystem,
+  tileSize: 64        // world units per tile; default 50
+  // mapWidth/mapHeight default to gridSystem.getDimensions()
+});
 ```
 
-### In Game Loop
+Usually you don't construct it manually — enable it via the module system:
 
 ```typescript
-// Mark occlusion as dirty when entities move
+const game = new Game({
+  // ...
+  modules: {
+    occlusionSystem: { enabled: true }
+  }
+});
+// game.occlusionSystem is now wired into the renderer
+```
+
+### Frame update
+
+```typescript
+// Call once per frame (Game does this automatically when the module is on).
 occlusion.update();
-
-// Get alpha for rendering
-const alpha = occlusion.getEntityAlpha(entity);
-
-// Use alpha in rendering
-ctx.globalAlpha = alpha;
-entity.draw(ctx);
-ctx.globalAlpha = 1.0;
 ```
 
-### Check Occlusion Status
+`update()` rebuilds the shadow map only when dirty; otherwise it just
+re-evaluates per-character occlusion (cheap map lookups) so callbacks also
+fire when a **character** walks into or out of a shadow.
+
+### Invalidation (automatic)
+
+`EntityManager` emits lifecycle events on the game's `EventBus`:
+`entityAdded`, `entityMoved`, `entityRemoved`. `Game` listens to these and
+calls `occlusionSystem.markDirty()` — but only for entities where
+`isBuilding()` is true. Character movement never triggers a map rebuild.
+
+If you manage entities outside `Game`, wire it yourself:
 
 ```typescript
-// Check if a specific tile is occluded
-if (occlusion.isTileOccluded(player.col, player.row)) {
-  console.log('Player is behind a building!');
-}
-
-// Get all occluded tiles
-const occludedTiles = occlusion.getOccludedTiles();
-console.log(`${occludedTiles.length} tiles are occluded`);
-
-// Get occlusion statistics
-const stats = occlusion.getStats();
-console.log(`Occlusion rate: ${(stats.occlusionRate * 100).toFixed(1)}%`);
+eventBus.on('entityMoved', (d) => { if (d.isBuilding) occlusion.markDirty(); });
 ```
 
----
-
-## 🎮 Integration Example
-
-### With PlayerController
+### Queries
 
 ```typescript
-class GameApp {
-  constructor() {
-    this.occlusion = new OcclusionSystem(
-      this.game.gridSystem,
-      this.game.entityManager,
-      { occludedAlpha: 0.5 }
-    );
-  }
-  
-  onBeforeRender() {
-    // Update occlusion when player moves
-    this.occlusion.update();
-  }
-  
-  onAfterRender(ctx) {
-    // Render with occlusion-aware alpha
-    for (const entity of this.game.entityManager.getAllEntities()) {
-      const alpha = this.occlusion.getEntityAlpha(entity);
-      ctx.globalAlpha = alpha;
-      entity.draw(ctx);
-    }
-    ctx.globalAlpha = 1.0;
-  }
-}
+if (occlusion.isOccluded(player)) { /* player is hidden by a building */ }
+
+const occluders = occlusion.getOccludingBuildings(player);
+// occluders: OcclusionData[] = [{ buildingId, height, southeastCol, southeastRow, depth }]
+
+const factor = occlusion.getOcclusionFactor(player); // 1.0 = visible, down to 0.3
+
+const hidden = occlusion.getOccludedEntities();      // all occluded characters
 ```
 
-### With EffectSystem
+### Change callbacks
 
 ```typescript
-// Clouds should also respect occlusion
-for (let i = 0; i < layerCount; i++) {
-  const effects = effectSystem.getEffectsForLayer(i);
-  for (const effect of effects) {
-    const alpha = occlusion.getEntityAlpha(effect);
-    ctx.globalAlpha = alpha;
-    effect.draw(ctx);
-  }
-}
-```
-
----
-
-## 📊 How It Works
-
-### Occlusion Calculation Algorithm
-
-```
-1. Identify all potential occluders (tall entities)
-   - Filter by minHeight
-   - Store (col, row, height)
-
-2. For each tile in the map:
-   - Calculate tile depth (col + row)
-   - Check all occluders:
-     * If occluder.depth > tile.depth (behind tile)
-     * AND occluder.height >= minHeight
-     * AND depthDiff <= 3 (within range)
-     * THEN tile is occluded
-
-3. Cache results in occlusionMap
-   - Key: "col,row"
-   - Value: { isOccluded, occluderHeight }
-```
-
-### Depth Calculation
-
-In isometric projection:
-- **Higher (col + row) = Further from camera**
-- **Lower (col + row) = Closer to camera**
-
-```
-Camera view (top-left)
-    ↓
-(0,0) → depth 0
-(1,0) → depth 1
-(0,1) → depth 1
-(1,1) → depth 2
-...
-
-Occluder at (5,5) depth=10 occludes:
-- Tiles with depth < 10 (in front of occluder)
-- Within range of 3 tiles
-- So tiles with depth 7, 8, 9 are occluded
-```
-
----
-
-## ⚙️ Configuration Options
-
-### occludedAlpha (default: 0.5)
-
-Alpha value for entities in occluded tiles.
-
-```typescript
-// More transparent
-new OcclusionSystem(grid, entities, {
-  occludedAlpha: 0.3
-});
-
-// Less transparent
-new OcclusionSystem(grid, entities, {
-  occludedAlpha: 0.7
-});
-```
-
-### normalAlpha (default: 1.0)
-
-Alpha value for entities in visible tiles.
-
-```typescript
-// Slightly transparent always
-new OcclusionSystem(grid, entities, {
-  normalAlpha: 0.9
-});
-```
-
-### minHeight (default: 50)
-
-Minimum entity height to cause occlusion.
-
-```typescript
-// Only very tall objects occlude
-new OcclusionSystem(grid, entities, {
-  minHeight: 100
-});
-
-// Even short objects occlude
-new OcclusionSystem(grid, entities, {
-  minHeight: 30
-});
-```
-
-### checkHeight (default: true)
-
-Enable/disable height-based occlusion.
-
-```typescript
-// Disable height checking (all entities occlude)
-new OcclusionSystem(grid, entities, {
-  checkHeight: false
+occlusion.onOcclusionChange((entity, occludingBuildings) => {
+  // Fires when an entity becomes occluded, becomes visible, or the set of
+  // occluding buildings changes while it stays occluded.
+  // Standing still inside the same shadow does NOT re-fire.
 });
 ```
 
 ---
 
-## 📈 Performance
+## How It Works
 
-### Time Complexity
+### Shadow casting
 
-| Operation | Complexity | Notes |
-|-----------|------------|-------|
-| **Pre-calculation** | O(n × m) | n = entities, m = tiles |
-| **Lookup** | O(1) | Cached result |
-| **Update** | O(1) | Just marks dirty |
-| **getStats** | O(m) | Scans all tiles |
+Only entities with `entityType === 'building'` cast shadows. For each tile a
+building occupies, the shadow extends into the three NW-adjacent directions
+(the blind zone hidden by the building's visible faces):
 
-### Memory Usage
+- `(-1, 0)` — West, behind the South/left face
+- `( 0,-1)` — North, behind the East/right face
+- `(-1,-1)` — NW corner, behind both faces
 
-- **Occlusion Map**: One entry per tile
-- **Per Entry**: 2 numbers (isOccluded, occluderHeight)
-- **Example**: 12×12 map = 144 entries ≈ 1KB
+The shadow length in each direction is `floor(building.height / tileSize)`
+steps. A building one tile tall casts a 1-tile shadow; two tiles tall casts
+2 steps, and so on. Tiles E/S/SE of the building are on the visible side and
+are never occluded.
 
-### Optimization Tips
+### Southeast-corner depth guard
 
-1. **Update only when needed**
-   ```typescript
-   // Don't call update() every frame
-   // Only when entities move
-   game.eventBus.on('entityMoved', () => {
-     occlusion.update();
-   });
-   ```
+A raw shadow entry only counts if the building is actually **in front of**
+the entity relative to the camera:
 
-2. **Disable when not needed**
-   ```typescript
-   // Disable in cutscenes or menus
-   occlusion.setEnabled(false);
-   ```
+```
+building SE-corner depth = southeastCol + southeastRow  >  entity.col + entity.row
+```
 
-3. **Adjust minHeight**
-   ```typescript
-   // Higher minHeight = fewer occluders = faster
-   occlusion.minHeight = 80;
-   ```
+For multi-tile buildings the SE corner is
+`(col + ceil(width/tileSize) - 1, row + ceil(length/tileSize) - 1)`.
+This prevents a small background building's shadow from wrongly occluding
+foreground entities.
+
+### Rendering integration
+
+When `game.occlusionSystem` is set, `EntityManager.render()`:
+
+1. Computes the set of buildings that occlude at least one character
+   (across **all** layers, so a character on another layer still triggers it).
+2. Depth-sorts entities by SE-corner depth (`col+row` for characters,
+   SE-corner sum for buildings); ties put buildings before characters.
+3. Draws occluding buildings with `globalAlpha = 0.5`.
+
+Without an `OcclusionSystem`, a legacy internal occlusion map is used; it is
+recomputed at most once per frame (on the layer-0 pass).
 
 ---
 
-## 🎨 Visual Examples
+## API Reference
 
-### Example 1: Player Behind Building
+### `new OcclusionSystem(config: OcclusionSystemConfig)`
 
-```
-Before (no occlusion):
-[Building] ← Completely blocks player
-[Player]   ← Can't see player at all
-
-After (with occlusion):
-[Building] ← Semi-transparent
-[Player]   ← Visible through building
-```
-
-### Example 2: Multiple Occluders
-
-```
-Scene:
-- Building A at (3,3) height=100
-- Building B at (5,5) height=80
-- Player at (4,4)
-
-Result:
-- Player is occluded by Building B (behind)
-- Player is NOT occluded by Building A (in front)
-- Alpha = 0.5 (50% transparent)
-```
-
----
-
-## 🔧 Troubleshooting
-
-### Issue: Entities always transparent
-
-**Cause**: Occlusion map not being calculated
-
-**Solution**:
-```typescript
-// Call update() at least once
-occlusion.update();
-
-// Or call getOcclusion() which triggers calculation
-occlusion.getOcclusion(player.col, player.row);
-```
-
-### Issue: Performance problems
-
-**Cause**: Recalculating every frame
-
-**Solution**:
-```typescript
-// Only update when entities move
-game.eventBus.on('entityMoved', () => {
-  occlusion.update();
-});
-
-// Don't call update() in game loop
-```
-
-### Issue: Wrong entities occluding
-
-**Cause**: minHeight too low
-
-**Solution**:
-```typescript
-// Increase minHeight
-occlusion.minHeight = 80;
-```
-
----
-
-## 📚 API Reference
-
-### Constructor
-
-```typescript
-new OcclusionSystem(
-  gridSystem: GridSystem,
-  entityManager: EntityManager,
-  config?: OcclusionConfig
-)
-```
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `entityManager` | `EntityManager` | — | Source of entities |
+| `gridSystem` | `GridSystem` | — | Map bounds & tile info |
+| `tileSize` | `number` | `50` | World units per tile (shadow length unit) |
+| `mapWidth` / `mapHeight` | `number` | grid dimensions | Shadow map size |
 
 ### Methods
 
-| Method | Description | Returns |
-|--------|-------------|---------|
-| `setEnabled(enabled)` | Enable/disable system | void |
-| `isEnabled()` | Check if enabled | boolean |
-| `update()` | Mark as dirty | void |
-| `getOcclusion(col, row)` | Get occlusion data | OcclusionData |
-| `isTileOccluded(col, row)` | Check if occluded | boolean |
-| `getEntityAlpha(entity)` | Get alpha for entity | number |
-| `getOccludedTiles()` | Get all occluded tiles | Array |
-| `getStats()` | Get statistics | Stats |
-| `clear()` | Clear cache | void |
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `update()` | void | Rebuild if dirty; otherwise re-evaluate characters |
+| `markDirty()` | void | Force shadow-map rebuild on next `update()` |
+| `isOccluded(entity)` | boolean | True if any occluding building is taller than the entity |
+| `getOccludingBuildings(entity)` | `OcclusionData[]` | Foreground buildings shadowing the entity |
+| `getOcclusionFactor(entity)` | number | 1.0 visible … 0.3 maximally occluded |
+| `getOccludedEntities()` | `Entity[]` | All currently occluded characters |
+| `onOcclusionChange(cb)` / `offOcclusionChange(cb)` | void | (Un)register transition callback |
+| `getDebugData()` | `Map<string, OcclusionData[]>` | Copy of the raw shadow map |
+| `clear()` | void | Clear shadow map and tracked state |
+| `calculateOcclusionMap()` | void | Immediate full rebuild (rarely needed) |
 
 ### Types
 
 ```typescript
-interface OcclusionConfig {
-  enabled?: boolean;
-  occludedAlpha?: number;
-  normalAlpha?: number;
-  checkHeight?: boolean;
-  minHeight?: number;
-}
-
 interface OcclusionData {
-  isOccluded: boolean;
-  occluderHeight: number;
+  buildingId: string;
+  height: number;
+  southeastCol: number;  // SE corner column (depth sorting)
+  southeastRow: number;  // SE corner row (depth sorting)
+  depth: number;         // southeastCol + southeastRow
 }
 
-interface OcclusionStats {
-  totalTiles: number;
-  occludedTiles: number;
-  occlusionRate: number;
-}
+type OcclusionCallback = (entity: Entity, occludingBuildings: OcclusionData[]) => void;
 ```
 
 ---
 
-## ✅ Best Practices
+## Performance
 
-1. **Initialize early**
-   ```typescript
-   // Create during game setup
-   const occlusion = new OcclusionSystem(...);
-   ```
+| Operation | Complexity | Notes |
+|-----------|------------|-------|
+| Shadow map rebuild | O(buildings × footprint × shadowLen) | Only on `markDirty` |
+| `update()` when clean | O(entities) | Map lookups only |
+| `isOccluded` | O(k) | k = buildings shadowing that tile |
+| Memory | O(mapWidth × mapHeight) | One array slot per tile |
 
-2. **Update on entity movement**
-   ```typescript
-   // Listen for movement events
-   eventBus.on('entityMoved', () => occlusion.update());
-   ```
+Tips:
 
-3. **Use in rendering**
-   ```typescript
-   // Get alpha before rendering each entity
-   const alpha = occlusion.getEntityAlpha(entity);
-   ctx.globalAlpha = alpha;
-   ```
-
-4. **Tune parameters**
-   ```typescript
-   // Adjust based on your game's scale
-   minHeight: averageBuildingHeight
-   occludedAlpha: desiredTransparency
-   ```
-
----
-
-## 🎯 Summary
-
-The Occlusion System provides:
-- ✅ **Automatic transparency** - No manual checks
-- ✅ **Performance optimized** - O(1) lookup after pre-calc
-- ✅ **Configurable** - Tune for your game
-- ✅ **Easy integration** - Works with existing code
-
-Perfect for isometric games where entities need to be visible behind obstacles!
+- Set `tileSize` to your actual tile size (e.g. 64) — the default is 50.
+- Only buildings should have `entityType = 'building'`; characters moving
+  never trigger a rebuild.
+- `markDirty` is idempotent — multiple building moves in one frame cause a
+  single rebuild.
